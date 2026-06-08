@@ -50,8 +50,9 @@ whatever shows up first on the map.
 **What she likes:**  
 -  Cafes, museums, parks, cultural spots
 -  She trusts friends and social medias over generic lists; typically needs 3–4 mentions before visiting a place
--  Craves for local hidden gems, not the same tourist spots everyone else visits 
-**Frustrations:** 
+-  Craves for local hidden gems, not the same tourist spots everyone else visits
+
+**Frustrations:**   
 - Finding places that match her interests
 - Planning efficient routes
 - Tourist recommendations feel repetitive
@@ -62,8 +63,7 @@ whatever shows up first on the map.
 ---
 
 ## Mission Statement  
-> *To be added.*
-
+> The mission statement of this project is to develop a proof of concept of a dashboard. The dashboard will present an interactive map of Berlin with filters for points of interest. The dashboard will help tourists find places that match their preferences more easily. This reduces the number of irrelevant options and prevents information overload. The proof of concept will enable the owner to assess the potential of preference-based filtering. This could improve tourists’ navigation of Berlin’s diverse city landscape.
 ---
 
 ## Tech
