@@ -1,5 +1,5 @@
 # BeePOV Map
-> A map of Berlin designed to reduce cognitive overload through.
+> A map of Berlin designed to reduce cognitive overload through preference based filtering.
 ---
 
 ## Table of Contents
@@ -7,8 +7,9 @@
 - [Background](#background)
 - [User Research](#user-research)
 - [Mission Statement](#mission-statement)
-- [Tech](#tech)
+- [Data and System Architecture](#data-and-system-architecture)
 - [Filter Structure](#filter-structure)
+- [Usage](#usage)
 
 ---
 
@@ -44,135 +45,157 @@ To understand the problem from the user's perspective, we distributed a survey t
 
 **Name:** Mara  
 **Age:** 25  
-**Bio:** A Berlin local who spends her free time hunting for authentic spots, cafés, parks, and cultural places that actually match her taste, not just 
-whatever shows up first on the map.  
-**Tools she uses:** Mara uses Google Maps multiple times a day, and uses Instagram and TikTok for recommendations.  
+**Bio:** A frequent visitor to Berlin who knows the city well, but that familiarity hasn't made planning easier. Every trip, she finds herself switching multiple apps, scrolling through endless recommendations, and still struggling to decide where to go. Mara has too much tourist information,andwhat she's missing is a way to cut through the noise and quickly surface places that actually match her taste.  
+**Tools she uses:** Mara uses Google Maps multiple times a day and relies heavily on Instagram and TikTok for discovery. She often has three apps open at once, cross-referencing recommendations before committing to anything.  
 **What she likes:**  
--  Cafes, museums, parks, cultural spots
--  She trusts friends and social medias over generic lists; typically needs 3–4 mentions before visiting a place
--  Craves for local hidden gems, not the same tourist spots everyone else visits
+- Cafés, museums, parks, and cultural spots with a local feel
+- Recommendations from friends or people with similar taste — she typically needs to see a place mentioned 3–4 times before she'll visit
+- Hidden gems and neighbourhood spots that aren't already saturated with tourists
+- She loves how every Berlin district has its own distinct personality, and that's what keep bringing her back to explore ones she hasn't fully discovered yet.
 
 **Frustrations:**   
-- Finding places that match her interests
-- Planning efficient routes
-- Tourist recommendations feel repetitive
+- The more options she sees, the harder it is to choose — she often can't decide or just picks something randomly
+- Switching between apps to check a single place takes too much time and energy
+- Even though she knows the city well, planning still feels like starting over every time
+- After finally picking a place, she still wonders if she chose the wrong one
 
-
->*Mara: "I'll spend ages deciding where to go — and half the time the place isn't what the photos promised."*
+>*Mara: "This is my fifth time here, but I still spend an hour on my phone going through app after app, and by the end I feel more lost than when I started."*
 
 ---
 
 ## Mission Statement  
-> The mission statement of this project is to develop a proof of concept of a dashboard. The dashboard will present an interactive map of Berlin with filters for points of interest. The dashboard will help tourists find places that match their preferences more easily. This reduces the number of irrelevant options and prevents information overload. The proof of concept will enable the owner to assess the potential of preference-based filtering. This could improve tourists’ navigation of Berlin’s diverse city landscape.
+> To develop a proof of concept of a dashboard. The dashboard will present an interactive map of Berlin with filters for points of interest. The dashboard will help tourists find places that match their preferences more easily. This reduces the number of irrelevant options and prevents information overload. The proof of concept will enable the owner to assess the potential of preference-based filtering. This could improve tourists’ navigation of Berlin’s diverse city landscape.
 ---
 
-## Tech
+## Data and System Architecture
 
 ### Data
-> *TBD*
-> 
+ 
 | Category | Source | Format |
 |---|---|---|
-| District boundaries | Berlin Open Data Portal — daten.odis-berlin.de | GeoJSON |
+| District boundaries | Berlin Open Data Portal — [daten.odis-berlin.de](https://daten.odis-berlin.de) | GeoJSON |
 | Nightlife & Food & Drink | Overpass Turbo (OpenStreetMap) | GeoJSON |
 | Culture & Heritage | Overpass Turbo (OpenStreetMap) | GeoJSON |
 | Nature & Outdoors | Overpass Turbo (OpenStreetMap) | GeoJSON |
-| Public transport stops | VBB Open Data — unternehmen.vbb.de | CSV |
-| Hotels & tourism | Berlin Open Data — daten.berlin.de | XLS |
-| Street parades & markets | Berlin Open Data — daten.berlin.de | GeoJSON |
+| Public transport stops | VBB Open Data — [unternehmen.vbb.de](https://unternehmen.vbb.de/digitale-services/datensaetze/) | CSV |
+| Hotels & tourism | Berlin Open Data — [daten.berlin.de](https://daten.berlin.de/datensaetze/tourismus-in-berlin) | XLS |
+| Street parades & markets | Berlin Open Data — [daten.berlin.de](https://daten.berlin.de/datensaetze/simple_search_wwwberlindesenwebservicemaerktefestestrassenvolksfeste) | GeoJSON |
+ 
+Overpass queries use standard OSM tags (`amenity`, `tourism`, `leisure`, `natural`, `historic`, `craft`) to extract Berlin POIs by category, all scoped to the Berlin administrative boundary via `{{geocodeArea:Berlin}}`. All queries follow the same structure, only the tags inside the filter block vary.
+ 
+<details>
+<summary>Example query: Nightlife & Food & Drink</summary>
+    
+```
+[out:json][timeout:90];
+{{geocodeArea:Berlin}}->.searchArea;
+(
+  node["amenity"="bar"](area.searchArea);
+  way["amenity"="bar"](area.searchArea);
+  node["amenity"="nightclub"](area.searchArea);
+  way["amenity"="nightclub"](area.searchArea);
+  node["craft"="brewery"](area.searchArea);
+  node["amenity"="wine_bar"](area.searchArea);
+  node["amenity"="marketplace"](area.searchArea);
+  way["amenity"="marketplace"](area.searchArea);
+);
+out body;
+>;
+out skel qt;
+```
+ 
+</details>
 
-Overpass queries use standard OSM tags (`amenity`, `tourism`, `leisure`, `natural`, `historic`, `craft`) to extract Berlin POIs by category, all scoped to the Berlin administrative boundary via `{{geocodeArea:Berlin}}`.
 
 ### Tech Stack
-> *TBD*
->
-> 
-| Layer | Tool | Rationale |
+
+| Layer | Tool | Notes |
 |---|---|---|
-| Data Source | Overpass API (OpenStreetMap) + Berlin Open Data Portal | Free, comprehensive, well-maintained |
-| ETL Pipeline | Python | Flexible; handles JSON, GeoJSON, CSV, and XLS |
-| Storage | Parquet files | Faster to query than CSV at our data scale |
-| Query Engine | DuckDB | Runs SQL directly on Parquet files inside Streamlit; ideal for our scale |
-| Frontend | Streamlit + Folium / Leaflet | Rapid prototyping; free cloud hosting |
-| Hosting | Streamlit Community Cloud | Free tier; accessible via mobile browser |
+| Data extraction | Python + Overpass API | Queries OpenStreetMap POIs for Berlin |
+| ETL orchestration | GitHub Actions | Scheduled extraction runs automatically |
+| Storage | Parquet | Faster to query than CSV |
+| Query engine | DuckDB | Runs SQL directly on Parquet files inside Streamlit |
+| Frontend | Streamlit + Folium | Interactive map with persona/district filters |
+| Hosting | Streamlit Cloud | Free tier |
 
 ### Pipeline
-> *TBD*
+ 
 ```
-Extract  →  Transform  →  Load  →  App
+1. Extract — Python calls Overpass API → fetches Berlin POIs by category
+        │
+        ▼
+2. Transform — cleans and normalizes the raw JSON (tags, coordinates, nulls)
+        │
+        ▼
+3. Load — saves output as berlin_pois.parquet to the GitHub repo
+        │
+        ▼
+4. App (Streamlit)
+   User selects persona + district
+        │
+        ▼
+   DuckDB: SELECT * FROM berlin_pois WHERE persona='Family' AND district='Mitte'
+        │
+        ▼
+   Folium renders filtered pins on the Berlin map
 ```
-
-**Step 1 — Extract** (GitHub Actions):
-A Python script calls the Overpass API and downloads Berlin POIs as GeoJSON files.
-
-**Step 2 — Transform**:
-Python cleans and normalises the raw data. OSM tags are mapped to BeePOVMap's filter categories and district fields are standardised.
-
-**Step 3 — Load**:
-Output is saved as `berlin_pois.parquet` in the GitHub repository, ready for the app to query.
-
-**Step 4 — App** (Streamlit):
-- User selects a district and category (e.g., *Mitte* + *Food & Drink*)
-- DuckDB executes: `SELECT * FROM data WHERE category = 'Food' AND district = 'Mitte'`
-- Folium renders the resulting pins on the interactive map
+ 
 
 ---
 
 ## Filter Structure
 
-BeePOVMap uses a three-step hierarchical filter system. Each step progressively narrows the result set before the map renders.
+The app filters Berlin POIs in three steps.
 
-```
-STEP 1: District  (multi-select)
-├── Mitte              ★ Brandenburg Gate, Museum Island, Alexanderplatz always pinned
-├── Kreuzberg / Friedrichshain
-├── Prenzlauer Berg
-├── Charlottenburg
-├── Neukölln
-└── Schöneberg
-    → Districts are colour-coded on the map
-    → Selecting a district narrows visible markers before categories are applied
+### Step 1 — Area / District
+Multi-select one or more Berlin districts:
 
-STEP 2: Category  (multi-select)
-├── Food & Drink                                             248 places
-│   ├── Restaurants
-│   ├── Cafés
-│   └── Bakeries & Street Food
-├── Nightlife                                                 89 places
-│   ├── Bars & Pubs
-│   ├── Clubs
-│   └── Breweries & Wine Bars
-├── Culture & Heritage                                        61 places
-│   ├── Museums & Galleries
-│   ├── Landmarks
-│   └── Churches
-└── Nature & Outdoors                                         44 places
-    ├── Parks & Gardens
-    ├── Lakes
-    └── Hiking & Trails
-    → Sub-categories appear inline only when their parent category is selected
-    → Map updates dynamically after each selection
-    → Multi-select is intentional: users can combine e.g. Food + Culture
+| District | Highlights |
+|---|---|
+| Mitte | Brandenburg Gate, Museum Island, Alexanderplatz |
+| Kreuzberg / Friedrichshain | |
+| Prenzlauer Berg | |
+| Charlottenburg | |
+| Neukölln | |
+| Schöneberg | |
 
-STEP 3 (OPTIONAL): Refinements
-Always visible:
-    ☐ Open Now
-    ☐ Open Late (after 22:00)
-    ☐ Near Public Transport  (≤ 5 min walk)
-    ☐ Free / Budget-friendly  (€)
-    ☐ Wheelchair Accessible
-    ☐ LGBTQ+ / FLINTA Friendly
-Shown only when Food & Drink is selected:
-    ☐ Vegan / Vegetarian Friendly
-    ☐ Outdoor Seating
-```
+Districts are colour-coded on the map. Selecting one narrows visible markers before categories are applied.
+
+### Step 2 — Category
+Multi-select one or more activity categories. Sub-options appear inline when a parent is selected.
+
+| Category | Sub-options |
+|---|---|
+| Food & Drink | Restaurants · Cafés · Bakeries & Street Food |
+| Nightlife | Bars & Pubs · Clubs · Breweries & Wine Bars |
+| Culture & Heritage | Museums & Galleries · Landmarks · Churches |
+| Nature & Outdoors | Parks & Gardens · Lakes · Hiking & Trails |
+
+Categories can be combined (e.g. Food + Culture). The map updates dynamically after each selection.
+
+### Step 3 — Refine *(optional)*
+Context-based toggles shown based on Step 2 selections.
+
+**Always visible:**
+- Open Now
+- Open Late (after 22:00)
+- Near Public Transport (≤ 5 min walk)
+- Free Entry / Budget-friendly (€)
+- Wheelchair Accessible
+- LGBTQ+ / FLINTA Friendly
+
+**Shown only when Food & Drink is selected:**
+- Vegan / Vegetarian Friendly
+- Outdoor Seating
 
 ### User Flow
 
 ```
 Pick district(s)  →  Pick category/ies  →  Select sub-options  →  Refine (optional)  →  Map result
 ```
+---
 
+### Usage
 
 
 
