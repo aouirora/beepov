@@ -1,0 +1,7 @@
+name,latitude,longitude,district,category,subcategory,open_now,lgbtq_friendly,wheelchair_accessible,free_entry
+Brandenburg Gate,52.5162,13.3777,Mitte,Culture & Heritage,Landmarks,Yes,Yes,Yes,Yes
+Museum Island,52.5169,13.3999,Mitte,Culture & Heritage,Museums & Galleries,Yes,Yes,Yes,No
+Tresor Club,52.5113,13.4147,Mitte,Nightlife,Clubs,No,Yes,No,No
+Klunkerkranich,52.4821,13.4347,Neukölln,Nightlife,Bars & Pubs,Yes,Yes,No,No
+Hasenheide Park,52.4862,13.4182,Neukölln,Nature & Outdoors,Parks & Gardens,Yes,Yes,Yes,Yes
+Mustafas Gemüse Kebap,52.4936,13.3888,Kreuzberg / Friedrichshain,Food & Drink,Restaurants,Yes,Yes,No,No
