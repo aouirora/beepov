@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# BeePOV local runtime data
+data/bee_ratings.json
