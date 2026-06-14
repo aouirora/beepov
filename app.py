@@ -43,95 +43,92 @@ con = get_database_connection()
 districts_gdf = load_districts_layer()
 
 # ==============================================================================
-# 3. SEQUENTIAL SIDEBAR NAVIGATION & SUB-FILTERS
+# 3. TOP NAVIGATION FILTERS
 # ==============================================================================
-st.sidebar.header("Filter Navigation")
-
-# STEP 1: Select District
-if districts_gdf is not None:
-    district_list = ["City View (No Pins)"] + sorted(list(DISTRICT_CENTERS.keys()))
-    selected_district = st.sidebar.selectbox("1. Select a District:", district_list)
-else:
-    st.sidebar.error("Error: Missing data/layer_districts.geojson")
-    selected_district = "City View (No Pins)"
-
 active_subcategories = []
 show_public_transport = False
 apply_free = False
 apply_accessible = False
 apply_vegan = False
 apply_lgbtq = False
-
 parent_categories_selected = set()
+max_results = 15
 
-# STEP 2: Conditional Rendering of Categories and Sub-options
+if districts_gdf is not None:
+    district_list = ["City View (No Pins)"] + sorted(list(DISTRICT_CENTERS.keys()))
+else:
+    district_list = ["City View (No Pins)"]
+
+col_d, col_cats = st.columns([1, 3])
+
+with col_d:
+    selected_district = st.selectbox("📍 Select a District", district_list)
+
 if selected_district != "City View (No Pins)":
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("2. Select Categories")
-    
-    # -- FOOD & DRINK --
-    if st.sidebar.checkbox("Food & Drink", value=False):
-        parent_categories_selected.add('Food & Drink')
-        col1, col2 = st.sidebar.columns([0.1, 0.9])
-        with col2:
-            if st.checkbox("Restaurants", value=True): active_subcategories.append('Restaurants')
-            if st.checkbox("Cafes", value=True): active_subcategories.append('Cafes')
-            if st.checkbox("Bakeries & Street Food", value=True): 
-                active_subcategories.extend(['Bakeries', 'Markets'])
+    with col_cats:
+        st.markdown("**Select Categories**")
+        cat_cols = st.columns(5)
+        with cat_cols[0]:
+            food = st.checkbox("🍽 Food & Drink")
+        with cat_cols[1]:
+            nightlife = st.checkbox("🎵 Nightlife")
+        with cat_cols[2]:
+            culture = st.checkbox("🏛 Culture")
+        with cat_cols[3]:
+            nature = st.checkbox("🌿 Nature")
+        with cat_cols[4]:
+            transport = st.checkbox("🚌 Transport")
 
-    # -- NIGHTLIFE --
-    if st.sidebar.checkbox("Nightlife", value=False):
-        parent_categories_selected.add('Nightlife')
-        col1, col2 = st.sidebar.columns([0.1, 0.9])
-        with col2:
-            if st.checkbox("Bars & Pubs", value=True): active_subcategories.append('Bars')
-            if st.checkbox("Clubs", value=True): active_subcategories.append('Clubs')
-            if st.checkbox("Breweries & Wine Bars", value=True): 
-                active_subcategories.append('Breweries & Wine Bars')
+    if food or nightlife or culture or nature or transport:
+        st.markdown("---")
+        sub_cols = st.columns([2, 2, 2, 2, 1])
 
-    # -- CULTURE & HERITAGE --
-    if st.sidebar.checkbox("Culture & Heritage", value=False):
-        parent_categories_selected.add('Culture & Heritage')
-        col1, col2 = st.sidebar.columns([0.1, 0.9])
-        with col2:
-            if st.checkbox("Museums & Galleries", value=True): 
-                active_subcategories.extend(['Museums', 'Galleries'])
-            if st.checkbox("Landmarks", value=True): active_subcategories.append('Landmark or Trail')
-            if st.checkbox("Churches", value=True): active_subcategories.append('Churches')
+        if food:
+            parent_categories_selected.add('Food & Drink')
+            with sub_cols[0]:
+                st.markdown("**Food & Drink**")
+                if st.checkbox("Restaurants", value=True, key="sub_rest"): active_subcategories.append('Restaurants')
+                if st.checkbox("Cafes", value=True, key="sub_cafe"): active_subcategories.append('Cafes')
+                if st.checkbox("Bakeries & Street Food", value=True, key="sub_bake"): active_subcategories.extend(['Bakeries', 'Markets'])
 
-    # -- NATURE & OUTDOORS --
-    if st.sidebar.checkbox("Nature & Outdoors", value=False):
-        parent_categories_selected.add('Nature & Outdoors')
-        col1, col2 = st.sidebar.columns([0.1, 0.9])
-        with col2:
-            if st.checkbox("Parks & Gardens", value=True): active_subcategories.append('Parks & Gardens')
-            if st.checkbox("Lakes", value=True): active_subcategories.append('Lakes & Swimming')
-            if st.checkbox("Hiking & Trails", value=True): active_subcategories.append('Hiking & Bike Trails')
+        if nightlife:
+            parent_categories_selected.add('Nightlife')
+            with sub_cols[1]:
+                st.markdown("**Nightlife**")
+                if st.checkbox("Bars & Pubs", value=True, key="sub_bars"): active_subcategories.append('Bars')
+                if st.checkbox("Clubs", value=True, key="sub_clubs"): active_subcategories.append('Clubs')
+                if st.checkbox("Breweries & Wine Bars", value=True, key="sub_brew"): active_subcategories.append('Breweries & Wine Bars')
 
-    # -- PUBLIC TRANSPORT --
-    if st.sidebar.checkbox("Public Transport", value=False):
-        show_public_transport = True
-        parent_categories_selected.add('Public Transport')
+        if culture:
+            parent_categories_selected.add('Culture & Heritage')
+            with sub_cols[2]:
+                st.markdown("**Culture & Heritage**")
+                if st.checkbox("Museums & Galleries", value=True, key="sub_mus"): active_subcategories.extend(['Museums', 'Galleries'])
+                if st.checkbox("Landmarks", value=True, key="sub_land"): active_subcategories.append('Landmark or Trail')
+                if st.checkbox("Churches", value=True, key="sub_church"): active_subcategories.append('Churches')
 
-    # STEP 3: Refinements
-    if parent_categories_selected:
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("3. Refine Results (Optional)")
-        apply_free = st.sidebar.checkbox("Free / Budget-Friendly")
-        apply_accessible = st.sidebar.checkbox("Wheelchair Accessible")
-        
-        if 'Food & Drink' in parent_categories_selected or 'Nightlife' in parent_categories_selected:
-            apply_vegan = st.sidebar.checkbox("Vegan/Vegetarian Options")
-            
-        apply_lgbtq = st.sidebar.checkbox("LGBTQ+ Friendly Space")
-        
-    # STEP 4: Prevent Overload Limit
-    if parent_categories_selected:
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("4. Prevent Overload")
-        st.sidebar.caption("Limit results to focus your choices.")
-        max_results = st.sidebar.slider("Maximum places to show:", min_value=5, max_value=50, value=15)
-        st.sidebar.button("Shuffle Recommendations")
+        if nature:
+            parent_categories_selected.add('Nature & Outdoors')
+            with sub_cols[3]:
+                st.markdown("**Nature & Outdoors**")
+                if st.checkbox("Parks & Gardens", value=True, key="sub_parks"): active_subcategories.append('Parks & Gardens')
+                if st.checkbox("Lakes", value=True, key="sub_lakes"): active_subcategories.append('Lakes & Swimming')
+                if st.checkbox("Hiking & Trails", value=True, key="sub_hike"): active_subcategories.append('Hiking & Bike Trails')
+
+        if transport:
+            parent_categories_selected.add('Public Transport')
+            show_public_transport = True
+
+        with sub_cols[4]:
+            st.markdown("**Refine**")
+            apply_free = st.checkbox("Free")
+            apply_accessible = st.checkbox("Accessible")
+            if food or nightlife:
+                apply_vegan = st.checkbox("Vegan")
+            apply_lgbtq = st.checkbox("LGBTQ+")
+            max_results = st.slider("Max", min_value=5, max_value=50, value=15)
+
+st.markdown("---")
 
 # ==============================================================================
 # 4. DATABASE QUERY CONSTRUCTION (DUCKDB)
@@ -150,7 +147,6 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
         )
     """
     params = [selected_district]
-    
     category_conditions = []
     
     if active_subcategories:
@@ -172,7 +168,6 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
 
     df_all = con.execute(query, params).df()
 
-    # Spread results evenly across subcategories so no single type dominates
     if len(active_subcategories) > 1 and not df_all.empty:
         per_cat = max(1, max_results // len(active_subcategories))
         df_pins = (df_all.groupby('subcategory')
