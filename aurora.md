@@ -163,6 +163,36 @@ The parquet has all 12 but `app.py` hardcodes only 6 in `DISTRICT_CENTERS`. The 
 
 ---
 
+## Branch merge notes
+
+### Merging `aurora` → `main`
+Safe to do. Changes: `build_database.py` (quality score, LineString fix, trail deduplication), `app.py` (quality filter, diversity logic), `data/berlin_pois.parquet` (rebuilt), `aurora.md` (new file). No conflicts with any other branch.
+
+### Merging `feature-rating-system` after `aurora` is in main
+There will be a **merge conflict on `app.py`** — both branches changed the query section. When resolving, the final SELECT must include **both**:
+
+```python
+SELECT name, district_name, master_category, subcategory, wkt_geometry, quality_score
+```
+
+- `district_name` — added by the rating branch, **required** for `get_place_id()`. If it's missing, every bee rating gets stored under `"placename|Unknown district|..."` and is never retrieved correctly. All ratings break silently.
+- `quality_score` — added by aurora branch, required for the quality filter in the WHERE clause.
+
+The WHERE clause from `aurora` also needs to be kept:
+```python
+AND (
+    (master_category = 'Nature & Outdoors' AND quality_score >= 1) OR
+    (master_category != 'Nature & Outdoors' AND quality_score >= 2)
+)
+```
+
+The shuffle/limit logic (their hash-based seed vs aurora's diversity spread) is a style choice — either works, but the diversity spread is better for anti-overload.
+
+### `feature-ui-map-prototype`
+Obsolete — reads from `berlin_pois.csv` which no longer exists. Whoever owns it needs to switch to the parquet/DuckDB approach before it can be merged.
+
+---
+
 ## Scheduled data extraction (planned, not done)
 
 The README mentions GitHub Actions for automatic scheduled re-fetching of OSM data. **This does not exist yet.** Currently the raw data was fetched manually:

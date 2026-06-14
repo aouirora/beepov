@@ -141,7 +141,7 @@ df_pins = None
 if selected_district != "City View (No Pins)" and (active_subcategories or show_public_transport) and os.path.exists('data/berlin_pois.parquet'):
     
     query = """
-        SELECT name, master_category, subcategory, wkt_geometry, quality_score
+        SELECT name, district_name, master_category, subcategory, wkt_geometry, quality_score
         FROM 'data/berlin_pois.parquet'
         WHERE district_name = ?
         AND (
