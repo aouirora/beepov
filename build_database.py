@@ -22,7 +22,7 @@ conditions = [
     gdf['amenity'].isin(['restaurant', 'fast_food', 'food_court', 'cafe', 'coffee_shop', 'bakery']) | gdf['shop'].isin(['bakery']),
     gdf['amenity'].isin(['bar', 'nightclub', 'brewery', 'wine_bar', 'marketplace']) | gdf['shop'].isin(['wine']) | gdf['craft'].isin(['brewery']),
     gdf['tourism'].isin(['museum', 'gallery', 'attraction', 'viewpoint']) | gdf['historic'].isin(['memorial', 'monument', 'city_gate', 'castle', 'building', 'ruins', 'checkpoint']) | (gdf['amenity'] == 'place_of_worship'),
-    gdf['leisure'].isin(['park', 'garden', 'bathing_place']) | (gdf['natural'] == 'water') | (gdf.geometry.geom_type.isin(['LineString', 'MultiLineString']))
+    gdf['leisure'].isin(['park', 'garden', 'bathing_place']) | (gdf['natural'] == 'water') | (gdf.geometry.geom_type.isin(['LineString', 'MultiLineString']) & (gdf['name'] != ''))
 ]
 categories = ['Food & Drink', 'Nightlife', 'Culture & Heritage', 'Nature & Outdoors']
 gdf['master_category'] = np.select(conditions, categories, default='Other')
@@ -40,11 +40,13 @@ sub_conditions = [
     gdf['tourism'] == 'gallery',
     gdf['amenity'] == 'place_of_worship',
     gdf['leisure'].isin(['park', 'garden']),
-    gdf['natural'] == 'water'
+    gdf['natural'] == 'water',
+    gdf.geometry.geom_type.isin(['LineString', 'MultiLineString']) & (gdf['name'] != '')
 ]
 subcats = [
-    'Cafes', 'Bakeries', 'Restaurants', 'Clubs', 'Bars', 'Breweries & Wine Bars', 
-    'Markets', 'Museums', 'Galleries', 'Churches', 'Parks & Gardens', 'Lakes & Swimming'
+    'Cafes', 'Bakeries', 'Restaurants', 'Clubs', 'Bars', 'Breweries & Wine Bars',
+    'Markets', 'Museums', 'Galleries', 'Churches', 'Parks & Gardens', 'Lakes & Swimming',
+    'Hiking & Bike Trails'
 ]
 gdf['subcategory'] = np.select(sub_conditions, subcats, default='Landmark or Trail')
 
@@ -57,14 +59,13 @@ gdf['is_accessible'] = gdf['wheelchair'].isin(['yes', 'limited'])
 gdf['is_lgbtq'] = gdf[['lgbtq', 'gay', 'lesbian', 'transgender']].apply(lambda row: any(val != '' and val != 'no' for val in row), axis=1)
 gdf['is_vegan_friendly'] = gdf[['diet:vegan', 'diet:vegetarian']].apply(lambda row: any(val in ['yes', 'only'] for val in row), axis=1)
 
-# -- D. Quality Score (0-5) --
-# Counts how many useful OSM fields are filled in — used to surface well-documented places
+# -- D. Quality Score (0-3) --
+# Counts data completeness signals only — not user preference tags like lgbtq or vegan
+# (those are handled separately as filters and should not affect default visibility)
 gdf['quality_score'] = (
     (~gdf['name'].str.startswith('Unnamed')).astype(int) +
     (gdf['fee'] != '').astype(int) +
-    (gdf['wheelchair'] != '').astype(int) +
-    (gdf[['lgbtq', 'gay', 'lesbian', 'transgender']].ne('').any(axis=1)).astype(int) +
-    (gdf[['diet:vegan', 'diet:vegetarian']].ne('').any(axis=1)).astype(int)
+    (gdf['wheelchair'] != '').astype(int)
 )
 
 # Convert to standard Pandas dataframe for DuckDB ingestion
@@ -107,6 +108,26 @@ if os.path.exists(transport_file):
         JOIN districts d ON st_intersects(st_point(stop_lon, stop_lat), d.district_geom);
     """)
 
-print("4. Exporting to Parquet...")
-con.execute("COPY unified_pois TO 'data/berlin_pois.parquet' (FORMAT PARQUET);")
+print("4. Deduplicating trail segments and exporting to Parquet...")
+# Trails (LineString segments) represent the same physical path split into many rows.
+# Keep one entry per trail name per district. Chain restaurants/cafes are NOT deduplicated
+# because each location is a genuinely distinct place.
+con.execute("""
+    CREATE TABLE unified_pois_final AS
+    WITH deduped_trails AS (
+        SELECT DISTINCT ON (name, district_name)
+               name, master_category, subcategory, is_free, is_accessible,
+               is_vegan_friendly, is_lgbtq, quality_score, district_name, wkt_geometry
+        FROM unified_pois
+        WHERE subcategory = 'Hiking & Bike Trails'
+        ORDER BY name, district_name, quality_score DESC
+    )
+    SELECT * FROM deduped_trails
+    UNION ALL
+    SELECT name, master_category, subcategory, is_free, is_accessible,
+           is_vegan_friendly, is_lgbtq, quality_score, district_name, wkt_geometry
+    FROM unified_pois
+    WHERE subcategory != 'Hiking & Bike Trails'
+""")
+con.execute("COPY unified_pois_final TO 'data/berlin_pois.parquet' (FORMAT PARQUET);")
 print("Database build complete! You can now run streamlit run app.py")
