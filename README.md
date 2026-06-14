@@ -145,7 +145,7 @@ out skel qt;
 
 ## Filter Structure
 
-The app filters Berlin POIs in three steps.
+The app filters Berlin POIs in three steps. Filters are displayed at the top of the page for quick access.
 
 ### Step 1 — Area / District
 Multi-select one or more Berlin districts:
@@ -191,7 +191,7 @@ Context-based toggles shown based on Step 2 selections.
 ### User Flow
 
 ```
-Pick district(s)  →  Pick category/ies  →  Select sub-options  →  Refine (optional)  →  Map result
+Select district and categories from the top navigation bar → Select sub-options → Refine (optional) → Map result
 ```
 ---
 
