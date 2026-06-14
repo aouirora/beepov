@@ -57,6 +57,16 @@ gdf['is_accessible'] = gdf['wheelchair'].isin(['yes', 'limited'])
 gdf['is_lgbtq'] = gdf[['lgbtq', 'gay', 'lesbian', 'transgender']].apply(lambda row: any(val != '' and val != 'no' for val in row), axis=1)
 gdf['is_vegan_friendly'] = gdf[['diet:vegan', 'diet:vegetarian']].apply(lambda row: any(val in ['yes', 'only'] for val in row), axis=1)
 
+# -- D. Quality Score (0-5) --
+# Counts how many useful OSM fields are filled in — used to surface well-documented places
+gdf['quality_score'] = (
+    (~gdf['name'].str.startswith('Unnamed')).astype(int) +
+    (gdf['fee'] != '').astype(int) +
+    (gdf['wheelchair'] != '').astype(int) +
+    (gdf[['lgbtq', 'gay', 'lesbian', 'transgender']].ne('').any(axis=1)).astype(int) +
+    (gdf[['diet:vegan', 'diet:vegetarian']].ne('').any(axis=1)).astype(int)
+)
+
 # Convert to standard Pandas dataframe for DuckDB ingestion
 gdf['wkt_geometry'] = gdf.geometry.to_wkt()
 df_pois = pd.DataFrame(gdf.drop(columns=['geometry']))
@@ -75,10 +85,10 @@ con.execute("""
 # Perform Spatial Join to assign districts
 con.execute("""
     CREATE TABLE unified_pois AS
-    SELECT 
-        p.name, p.master_category, p.subcategory, 
+    SELECT
+        p.name, p.master_category, p.subcategory,
         p.is_free, p.is_accessible, p.is_vegan_friendly, p.is_lgbtq,
-        d.district_name, p.wkt_geometry
+        p.quality_score, d.district_name, p.wkt_geometry
     FROM df_pois AS p
     JOIN districts d ON st_intersects(st_geomfromtext(p.wkt_geometry), d.district_geom)
     WHERE p.master_category != 'Other';
@@ -92,7 +102,7 @@ if os.path.exists(transport_file):
         SELECT 
             stop_name AS name, 'Public Transport' AS master_category, 'Transit Stop' AS subcategory,
             true AS is_free, true AS is_accessible, false AS is_vegan_friendly, false AS is_lgbtq,
-            d.district_name, st_astext(st_point(stop_lon, stop_lat)) AS wkt_geometry
+            3 AS quality_score, d.district_name, st_astext(st_point(stop_lon, stop_lat)) AS wkt_geometry
         FROM read_csv_auto('{transport_file}')
         JOIN districts d ON st_intersects(st_point(stop_lon, stop_lat), d.district_geom);
     """)

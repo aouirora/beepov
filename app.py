@@ -141,9 +141,13 @@ df_pins = None
 if selected_district != "City View (No Pins)" and (active_subcategories or show_public_transport) and os.path.exists('data/berlin_pois.parquet'):
     
     query = """
-        SELECT name, master_category, subcategory, wkt_geometry 
+        SELECT name, master_category, subcategory, wkt_geometry, quality_score
         FROM 'data/berlin_pois.parquet'
-        WHERE district_name = ? 
+        WHERE district_name = ?
+        AND (
+            (master_category = 'Nature & Outdoors' AND quality_score >= 1) OR
+            (master_category != 'Nature & Outdoors' AND quality_score >= 2)
+        )
     """
     params = [selected_district]
     
@@ -164,11 +168,18 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
     if apply_vegan: query += " AND is_vegan_friendly = true"
     if apply_lgbtq: query += " AND is_lgbtq = true"
 
-    # Add Randomization and Limit to curate the view
-    query += " ORDER BY random() LIMIT ?"
-    params.append(max_results)
+    query += " ORDER BY random() LIMIT 200"
 
-    df_pins = con.execute(query, params).df()
+    df_all = con.execute(query, params).df()
+
+    # Spread results evenly across subcategories so no single type dominates
+    if len(active_subcategories) > 1 and not df_all.empty:
+        per_cat = max(1, max_results // len(active_subcategories))
+        df_pins = (df_all.groupby('subcategory')
+                         .apply(lambda x: x.head(per_cat))
+                         .reset_index(drop=True))
+    else:
+        df_pins = df_all.head(max_results)
 
 # ==============================================================================
 # 5. RENDERING MAP VIEWPORT
