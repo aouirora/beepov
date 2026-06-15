@@ -13,7 +13,7 @@ To deploy your Beepov app to Streamlit Cloud, follow these step-by-step instruct
 3. Configure Your Repository Settings
    Fill in the deployment details exactly as follows:
    * **Repository:** aouirora/beepov
-   * **Branch:** feature/cloud-deployment (This is the branch containing your latest updates).
+   * **Branch:** main or own branch
    * **Main file path:** app.py
 
 4. Launch the App
