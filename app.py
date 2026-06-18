@@ -2,6 +2,7 @@ import os
 import json
 import streamlit as st
 import duckdb
+import pandas as pd
 import geopandas as gpd
 import folium
 from folium.plugins import MarkerCluster
@@ -401,11 +402,11 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
     # Spread results evenly across subcategories so no single type dominates
     if len(active_subcategories) > 1 and not df_all.empty:
         per_cat = max(1, max_results // len(active_subcategories))
-        df_pins = (df_all.groupby('subcategory')
-                         .apply(lambda x: x.head(per_cat))
-                         .reset_index(drop=True))
+        df_pins = pd.concat(
+            [grp.head(per_cat) for _, grp in df_all.groupby('subcategory')]
+        ).reset_index(drop=True)
     else:
-        df_pins = df_all.head(max_results)
+        df_pins = df_all.head(max_results).copy()
 
 # Load ratings and enrich df_pins with bee scores
 bee_ratings = load_bee_ratings()
