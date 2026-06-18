@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 import duckdb
 import geopandas as gpd
@@ -6,6 +7,8 @@ import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import shapely.wkt
+from datetime import datetime
+from html import escape
 
 # ==============================================================================
 # 1. INITIAL APP CONFIGURATION
@@ -13,6 +16,163 @@ import shapely.wkt
 st.set_page_config(page_title="BeePOV Map | Berlin", layout="wide")
 st.title("BeePOV Map: Berlin Spatial Explorer")
 st.markdown("Navigate Berlin without the cognitive overload. Select a neighborhood to begin.")
+st.markdown(
+    """
+    <style>
+        .bee-rating-panel {
+            border: 1px solid #ece7da;
+            border-radius: 8px;
+            padding: 1rem 1.1rem;
+            background: #fffdf8;
+            margin-top: 0.75rem;
+        }
+
+        .bee-rating-heading {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            margin-bottom: 0.2rem;
+            font-size: 1.08rem;
+            font-weight: 650;
+            color: #2f2a1e;
+        }
+
+        .bee-rating-subtle {
+            color: #756d5d;
+            font-size: 0.9rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .bee-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.6rem;
+            margin: 0.8rem 0 1rem;
+        }
+
+        .bee-summary-item {
+            border: 1px solid #eee8da;
+            border-radius: 8px;
+            padding: 0.65rem 0.75rem;
+            background: #ffffff;
+        }
+
+        .bee-summary-label {
+            color: #766f62;
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .bee-summary-value {
+            margin-top: 0.15rem;
+            color: #2f2a1e;
+            font-size: 1rem;
+            font-weight: 650;
+        }
+
+        .bee-meter {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            vertical-align: middle;
+        }
+
+        .bee-meter .bee {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.45rem;
+            height: 1.45rem;
+            border-radius: 999px;
+            border: 1px solid #e8dfca;
+            background: #fff7df;
+            font-size: 0.88rem;
+            line-height: 1;
+        }
+
+        .bee-meter .bee-muted {
+            background: #f5f3ee;
+            filter: grayscale(1);
+            opacity: 0.38;
+        }
+
+        .bee-score-line {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.55rem;
+            margin: 0.45rem 0 0.8rem;
+        }
+
+        .bee-score-text {
+            color: #645d51;
+            font-size: 0.9rem;
+        }
+
+        .bee-top-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            border-top: 1px solid #eee8da;
+            padding: 0.7rem 0;
+        }
+
+        .bee-top-row:first-child {
+            border-top: 0;
+        }
+
+        .bee-place-name {
+            color: #2f2a1e;
+            font-weight: 650;
+        }
+
+        .bee-place-meta {
+            color: #756d5d;
+            font-size: 0.84rem;
+            margin-top: 0.1rem;
+        }
+
+        div[data-testid="stRadio"] div[role="radiogroup"] {
+            gap: 0.35rem;
+        }
+
+        div[data-testid="stRadio"] div[role="radiogroup"] label {
+            border: 1px solid #e8dfca;
+            border-radius: 999px;
+            padding: 0.3rem 0.58rem;
+            background: #ffffff;
+            min-width: 4.1rem;
+            justify-content: center;
+        }
+
+        div[data-testid="stRadio"] div[role="radiogroup"] label p {
+            color: #1f1f1f;
+            min-width: 2.15rem;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+            border-color: #d4b75f;
+            background: #fff9e8;
+        }
+
+        @media (max-width: 760px) {
+            .bee-summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .bee-top-row {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 DISTRICT_CENTERS = {
     "Mitte": {"coords": [52.5200, 13.4050], "zoom": 14},
@@ -22,6 +182,66 @@ DISTRICT_CENTERS = {
     "Pankow": {"coords": [52.5600, 13.4000], "zoom": 13},
     "Tempelhof-Schöneberg": {"coords": [52.4700, 13.3800], "zoom": 13}
 }
+
+RATINGS_PATH = "data/bee_ratings.json"
+
+
+def get_place_id(row):
+    return "|".join([
+        str(row.get('name', 'Unknown place')),
+        str(row.get('district_name', 'Unknown district')),
+        str(row.get('master_category', '')),
+        str(row.get('subcategory', '')),
+    ])
+
+
+def format_bees(rating):
+    if rating <= 0:
+        return "No Bee ratings yet"
+    full_bees = int(round(rating))
+    return "🐝" * full_bees + "·" * (5 - full_bees)
+
+
+def bee_meter_html(rating):
+    active_bees = int(round(rating))
+    bees = []
+    for bee_number in range(1, 6):
+        bee_class = "bee" if bee_number <= active_bees else "bee bee-muted"
+        bees.append(f'<span class="{bee_class}">🐝</span>')
+    return f'<span class="bee-meter">{"".join(bees)}</span>'
+
+
+def rating_count_label(count):
+    return f"{count} rating{'s' if count != 1 else ''}"
+
+
+def get_rating_summary(ratings, place_id):
+    place_ratings = ratings.get(place_id, [])
+    if not place_ratings:
+        return 0, 0
+    return sum(place_ratings) / len(place_ratings), len(place_ratings)
+
+
+@st.cache_data
+def load_bee_ratings():
+    if not os.path.exists(RATINGS_PATH):
+        return {}
+    try:
+        with open(RATINGS_PATH, "r", encoding="utf-8") as ratings_file:
+            ratings = json.load(ratings_file)
+            return {key: [int(value) for value in values] for key, values in ratings.items()}
+    except (json.JSONDecodeError, OSError, TypeError, ValueError):
+        return {}
+
+
+def save_bee_rating(place_id, rating):
+    ratings = load_bee_ratings()
+    ratings.setdefault(place_id, []).append(int(rating))
+    os.makedirs(os.path.dirname(RATINGS_PATH), exist_ok=True)
+    with open(RATINGS_PATH, "w", encoding="utf-8") as ratings_file:
+        json.dump(ratings, ratings_file, indent=2, ensure_ascii=False)
+    load_bee_ratings.clear()
+
 
 # ==============================================================================
 # 2. CACHED DATABASE & DATA LOADERS
@@ -51,8 +271,12 @@ apply_free = False
 apply_accessible = False
 apply_vegan = False
 apply_lgbtq = False
+minimum_bee_rating = 0
 parent_categories_selected = set()
 max_results = 15
+
+if "shuffle_seed" not in st.session_state:
+    st.session_state["shuffle_seed"] = "beepov-default"
 
 if districts_gdf is not None:
     district_list = ["City View (No Pins)"] + sorted(list(DISTRICT_CENTERS.keys()))
@@ -127,6 +351,9 @@ if selected_district != "City View (No Pins)":
                 apply_vegan = st.checkbox("Vegan")
             apply_lgbtq = st.checkbox("LGBTQ+")
             max_results = st.slider("Max", min_value=5, max_value=50, value=15)
+            minimum_bee_rating = st.slider("Min 🐝", min_value=0, max_value=5, value=0)
+            if st.button("🔀 Shuffle"):
+                st.session_state["shuffle_seed"] = datetime.utcnow().isoformat()
 
 st.markdown("---")
 
@@ -136,7 +363,7 @@ st.markdown("---")
 df_pins = None
 
 if selected_district != "City View (No Pins)" and (active_subcategories or show_public_transport) and os.path.exists('data/berlin_pois.parquet'):
-    
+
     query = """
         SELECT name, district_name, master_category, subcategory, wkt_geometry, quality_score
         FROM 'data/berlin_pois.parquet'
@@ -148,26 +375,30 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
     """
     params = [selected_district]
     category_conditions = []
-    
+
     if active_subcategories:
         placeholders = ", ".join(["?"] * len(active_subcategories))
         category_conditions.append(f"subcategory IN ({placeholders})")
         params.extend(active_subcategories)
-        
+
     if show_public_transport:
         category_conditions.append("master_category = 'Public Transport'")
-        
+
     query += " AND (" + " OR ".join(category_conditions) + ")"
-    
+
     if apply_free: query += " AND is_free = true"
     if apply_accessible: query += " AND is_accessible = true"
     if apply_vegan: query += " AND is_vegan_friendly = true"
     if apply_lgbtq: query += " AND is_lgbtq = true"
 
-    query += " ORDER BY random() LIMIT 200"
+    # Stable ordering tied to shuffle seed — results stay consistent across rerenders,
+    # only change when the user clicks Shuffle.
+    query += " ORDER BY hash(coalesce(name, '') || ?) LIMIT 200"
+    params.append(st.session_state["shuffle_seed"])
 
     df_all = con.execute(query, params).df()
 
+    # Spread results evenly across subcategories so no single type dominates
     if len(active_subcategories) > 1 and not df_all.empty:
         per_cat = max(1, max_results // len(active_subcategories))
         df_pins = (df_all.groupby('subcategory')
@@ -175,6 +406,20 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
                          .reset_index(drop=True))
     else:
         df_pins = df_all.head(max_results)
+
+# Load ratings and enrich df_pins with bee scores
+bee_ratings = load_bee_ratings()
+
+if df_pins is not None and not df_pins.empty:
+    df_pins["place_id"] = df_pins.apply(get_place_id, axis=1)
+    rating_summaries = df_pins["place_id"].apply(lambda place_id: get_rating_summary(bee_ratings, place_id))
+    df_pins["bee_average"] = rating_summaries.apply(lambda s: s[0])
+    df_pins["bee_count"] = rating_summaries.apply(lambda s: s[1])
+
+    if minimum_bee_rating > 0:
+        df_pins = df_pins[
+            (df_pins["bee_count"] > 0) & (df_pins["bee_average"] >= minimum_bee_rating)
+        ]
 
 # ==============================================================================
 # 5. RENDERING MAP VIEWPORT
@@ -209,11 +454,11 @@ if df_pins is not None and not df_pins.empty:
     for _, row in df_pins.iterrows():
         try:
             point = shapely.wkt.loads(row['wkt_geometry'])
-            if point.geom_type != 'Point': 
+            if point.geom_type != 'Point':
                 point = point.centroid
         except Exception:
             continue
-            
+
         cat = row.get('master_category', '')
         if cat == 'Culture & Heritage':
             icon_color, icon_type = 'blue', 'info-sign'
@@ -227,14 +472,125 @@ if df_pins is not None and not df_pins.empty:
             icon_color, icon_type = 'lightgray', 'unchecked'
         else:
             icon_color, icon_type = 'red', 'map-marker'
-            
+
         subcat = str(row.get('subcategory', '')).replace('_', ' ').title()
-        popup_html = f"<b>{row['name']}</b><br><i>{subcat}</i>"
-            
+        bee_average = float(row.get('bee_average', 0))
+        bee_count = int(row.get('bee_count', 0))
+        bee_label = format_bees(bee_average)
+        if bee_count:
+            rating_line = f"{bee_label} {bee_average:.1f}/5 from {bee_count} rating{'s' if bee_count != 1 else ''}"
+        else:
+            rating_line = bee_label
+        popup_html = f"<b>{escape(str(row['name']))}</b><br><i>{escape(subcat)}</i><br><span>{escape(rating_line)}</span>"
+
         folium.Marker(
             location=[point.y, point.x],
             popup=folium.Popup(popup_html, max_width=250),
             icon=folium.Icon(color=icon_color, icon=icon_type)
-        ).add_to(marker_cluster) # Added to Cluster instead of Base Map
+        ).add_to(marker_cluster)
 
-st_folium(m, width="100%", height=700, returned_objects=[])
+st_folium(m, height=700, use_container_width=True, returned_objects=[])
+
+# ==============================================================================
+# 6. BEE RATING SYSTEM
+# ==============================================================================
+if selected_district != "City View (No Pins)" and df_pins is not None:
+    if "bee_rating_success" in st.session_state:
+        st.success(st.session_state.pop("bee_rating_success"))
+
+    if df_pins.empty:
+        st.info("No places match the current filters and Bee rating threshold.")
+    else:
+        rating_options = {
+            f"{row['name']} ({row['subcategory']})": row["place_id"]
+            for _, row in df_pins.sort_values("name").iterrows()
+        }
+        visible_count = len(df_pins)
+        rated_places_count = int((df_pins["bee_count"] > 0).sum())
+        total_ratings = int(df_pins["bee_count"].sum())
+        view_average = 0
+        if total_ratings:
+            view_average = (
+                (df_pins["bee_average"] * df_pins["bee_count"]).sum() / total_ratings
+            )
+
+        st.markdown(
+            f"""
+            <section class="bee-rating-panel">
+                <div class="bee-rating-heading"><span>🐝</span><span>Bee rating</span></div>
+                <div class="bee-rating-subtle">
+                    Rate one of the visible places from 1 to 5 Bees. The score helps keep the map focused on places people actually enjoyed.
+                </div>
+                <div class="bee-summary-grid">
+                    <div class="bee-summary-item">
+                        <div class="bee-summary-label">Visible places</div>
+                        <div class="bee-summary-value">{visible_count}</div>
+                    </div>
+                    <div class="bee-summary-item">
+                        <div class="bee-summary-label">Rated places</div>
+                        <div class="bee-summary-value">{rated_places_count}</div>
+                    </div>
+                    <div class="bee-summary-item">
+                        <div class="bee-summary-label">View average</div>
+                        <div class="bee-summary-value">{view_average:.1f}/5</div>
+                    </div>
+                </div>
+            </section>
+            """,
+            unsafe_allow_html=True
+        )
+
+        with st.form("bee_rating_form", clear_on_submit=False, border=True):
+            selected_place_label = st.selectbox("Place", list(rating_options.keys()))
+            selected_place_id = rating_options[selected_place_label]
+            selected_average, selected_count = get_rating_summary(bee_ratings, selected_place_id)
+            if selected_count:
+                selected_score_text = f"{selected_average:.1f}/5 from {rating_count_label(selected_count)}"
+            else:
+                selected_score_text = "No ratings yet"
+
+            st.markdown(
+                f"""
+                <div class="bee-score-line">
+                    {bee_meter_html(selected_average)}
+                    <span class="bee-score-text">{selected_score_text}</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            selected_bee_rating = st.radio(
+                "Your Bee rating",
+                options=[1, 2, 3, 4, 5],
+                horizontal=True,
+                format_func=lambda rating: f"{rating} 🐝"
+            )
+            submitted_rating = st.form_submit_button("Submit Bee Rating")
+
+        if submitted_rating:
+            save_bee_rating(rating_options[selected_place_label], selected_bee_rating)
+            st.session_state["bee_rating_success"] = (
+                f"Thanks! Your {selected_bee_rating}-Bee rating was added."
+            )
+            st.rerun()
+
+        rated_places = df_pins[df_pins["bee_count"] > 0].copy()
+        if not rated_places.empty:
+            rated_places = rated_places.sort_values(["bee_average", "bee_count"], ascending=False).head(5)
+            st.markdown("#### Top Bee-rated places")
+            for _, row in rated_places.iterrows():
+                bee_count = int(row["bee_count"])
+                st.markdown(
+                    f"""
+                    <div class="bee-top-row">
+                        <div>
+                            <div class="bee-place-name">{escape(str(row['name']))}</div>
+                            <div class="bee-place-meta">{escape(str(row['subcategory']))} · {rating_count_label(bee_count)}</div>
+                        </div>
+                        <div class="bee-score-line">
+                            {bee_meter_html(row['bee_average'])}
+                            <span class="bee-score-text">{row['bee_average']:.1f}/5</span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
