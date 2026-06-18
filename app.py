@@ -12,7 +12,7 @@ from datetime import datetime
 from html import escape
 
 # ==============================================================================
-# 1. INITIAL APP CONFIGURATION
+# 1. INITIAL APP CONFIGURATION & STYLING
 # ==============================================================================
 st.set_page_config(page_title="BeePOV Map | Berlin", layout="wide")
 st.title("BeePOV Map: Berlin Spatial Explorer")
@@ -186,7 +186,9 @@ DISTRICT_CENTERS = {
 
 RATINGS_PATH = "data/bee_ratings.json"
 
-
+# ==============================================================================
+# 2. HELPER FUNCTIONS & DATA LOADERS
+# ==============================================================================
 def get_place_id(row):
     return "|".join([
         str(row.get('name', 'Unknown place')),
@@ -195,13 +197,11 @@ def get_place_id(row):
         str(row.get('subcategory', '')),
     ])
 
-
 def format_bees(rating):
     if rating <= 0:
         return "No Bee ratings yet"
     full_bees = int(round(rating))
     return "🐝" * full_bees + "·" * (5 - full_bees)
-
 
 def bee_meter_html(rating):
     active_bees = int(round(rating))
@@ -211,17 +211,14 @@ def bee_meter_html(rating):
         bees.append(f'<span class="{bee_class}">🐝</span>')
     return f'<span class="bee-meter">{"".join(bees)}</span>'
 
-
 def rating_count_label(count):
     return f"{count} rating{'s' if count != 1 else ''}"
-
 
 def get_rating_summary(ratings, place_id):
     place_ratings = ratings.get(place_id, [])
     if not place_ratings:
         return 0, 0
     return sum(place_ratings) / len(place_ratings), len(place_ratings)
-
 
 @st.cache_data
 def load_bee_ratings():
@@ -234,7 +231,6 @@ def load_bee_ratings():
     except (json.JSONDecodeError, OSError, TypeError, ValueError):
         return {}
 
-
 def save_bee_rating(place_id, rating):
     ratings = load_bee_ratings()
     ratings.setdefault(place_id, []).append(int(rating))
@@ -243,10 +239,6 @@ def save_bee_rating(place_id, rating):
         json.dump(ratings, ratings_file, indent=2, ensure_ascii=False)
     load_bee_ratings.clear()
 
-
-# ==============================================================================
-# 2. CACHED DATABASE & DATA LOADERS
-# ==============================================================================
 @st.cache_resource
 def get_database_connection():
     con = duckdb.connect(database=':memory:')
@@ -264,8 +256,14 @@ con = get_database_connection()
 districts_gdf = load_districts_layer()
 
 # ==============================================================================
-# 3. TOP NAVIGATION FILTERS
+# 3. STATE INITIALIZATION & TOP NAVIGATION FILTERS
 # ==============================================================================
+if "selected_district" not in st.session_state:
+    st.session_state["selected_district"] = "City View (No Pins)"
+
+if "shuffle_seed" not in st.session_state:
+    st.session_state["shuffle_seed"] = "beepov-default"
+
 active_subcategories = []
 show_public_transport = False
 apply_free = False
@@ -276,33 +274,45 @@ minimum_bee_rating = 0
 parent_categories_selected = set()
 max_results = 15
 
-if "shuffle_seed" not in st.session_state:
-    st.session_state["shuffle_seed"] = "beepov-default"
-
 if districts_gdf is not None:
     district_list = ["City View (No Pins)"] + sorted(list(DISTRICT_CENTERS.keys()))
 else:
     district_list = ["City View (No Pins)"]
 
+# --- THE CLEAN SYNC FIX ---
+# Calculate which index the dropdown should visually show
+try:
+    current_index = district_list.index(st.session_state["selected_district"])
+except ValueError:
+    current_index = 0
+
 col_d, col_cats = st.columns([1, 3])
 
 with col_d:
-    selected_district = st.selectbox("📍 Select a District", district_list)
+    # Render the selectbox WITHOUT a key, and grab its returned value
+    ui_selection = st.selectbox(
+        "📍 Select a District", 
+        options=district_list,
+        index=current_index
+    )
+    
+    # If the user clicks the dropdown, update the state and immediately rerun
+    if ui_selection != st.session_state["selected_district"]:
+        st.session_state["selected_district"] = ui_selection
+        st.rerun()
+
+# For the rest of the app, use the clean session state variable
+selected_district = st.session_state["selected_district"]
 
 if selected_district != "City View (No Pins)":
     with col_cats:
         st.markdown("**Select Categories**")
         cat_cols = st.columns(5)
-        with cat_cols[0]:
-            food = st.checkbox("🍽 Food & Drink")
-        with cat_cols[1]:
-            nightlife = st.checkbox("🎵 Nightlife")
-        with cat_cols[2]:
-            culture = st.checkbox("🏛 Culture")
-        with cat_cols[3]:
-            nature = st.checkbox("🌿 Nature")
-        with cat_cols[4]:
-            transport = st.checkbox("🚌 Transport")
+        with cat_cols[0]: food = st.checkbox("🍽 Food & Drink")
+        with cat_cols[1]: nightlife = st.checkbox("🎵 Nightlife")
+        with cat_cols[2]: culture = st.checkbox("🏛 Culture")
+        with cat_cols[3]: nature = st.checkbox("🌿 Nature")
+        with cat_cols[4]: transport = st.checkbox("🚌 Transport")
 
     if food or nightlife or culture or nature or transport:
         st.markdown("---")
@@ -392,14 +402,11 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
     if apply_vegan: query += " AND is_vegan_friendly = true"
     if apply_lgbtq: query += " AND is_lgbtq = true"
 
-    # Stable ordering tied to shuffle seed — results stay consistent across rerenders,
-    # only change when the user clicks Shuffle.
     query += " ORDER BY hash(coalesce(name, '') || ?) LIMIT 200"
     params.append(st.session_state["shuffle_seed"])
 
     df_all = con.execute(query, params).df()
 
-    # Spread results evenly across subcategories so no single type dominates
     if len(active_subcategories) > 1 and not df_all.empty:
         per_cat = max(1, max_results // len(active_subcategories))
         df_pins = pd.concat(
@@ -408,7 +415,6 @@ if selected_district != "City View (No Pins)" and (active_subcategories or show_
     else:
         df_pins = df_all.head(max_results).copy()
 
-# Load ratings and enrich df_pins with bee scores
 bee_ratings = load_bee_ratings()
 
 if df_pins is not None and not df_pins.empty:
@@ -423,7 +429,7 @@ if df_pins is not None and not df_pins.empty:
         ]
 
 # ==============================================================================
-# 5. RENDERING MAP VIEWPORT
+# 5. RENDERING MAP VIEWPORT & CLICK LOGIC
 # ==============================================================================
 if selected_district == "City View (No Pins)":
     map_center = [52.5200, 13.4050]
@@ -434,7 +440,6 @@ else:
 
 m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="CartoDB positron")
 
-# Render Base District Borders
 if districts_gdf is not None:
     def get_district_style(feature):
         d_name = feature['properties'].get('Gemeinde_name', feature['properties'].get('name', ''))
@@ -447,10 +452,8 @@ if districts_gdf is not None:
         style_function=get_district_style
     ).add_to(m)
 
-# Setup Marker Cluster
 marker_cluster = MarkerCluster().add_to(m)
 
-# Render Queried Pins into the Cluster
 if df_pins is not None and not df_pins.empty:
     for _, row in df_pins.iterrows():
         try:
@@ -461,18 +464,12 @@ if df_pins is not None and not df_pins.empty:
             continue
 
         cat = row.get('master_category', '')
-        if cat == 'Culture & Heritage':
-            icon_color, icon_type = 'blue', 'info-sign'
-        elif cat == 'Nightlife':
-            icon_color, icon_type = 'purple', 'glass'
-        elif cat == 'Food & Drink':
-            icon_color, icon_type = 'orange', 'cutlery'
-        elif cat == 'Nature & Outdoors':
-            icon_color, icon_type = 'green', 'leaf'
-        elif cat == 'Public Transport':
-            icon_color, icon_type = 'lightgray', 'unchecked'
-        else:
-            icon_color, icon_type = 'red', 'map-marker'
+        if cat == 'Culture & Heritage': icon_color, icon_type = 'blue', 'info-sign'
+        elif cat == 'Nightlife': icon_color, icon_type = 'purple', 'glass'
+        elif cat == 'Food & Drink': icon_color, icon_type = 'orange', 'cutlery'
+        elif cat == 'Nature & Outdoors': icon_color, icon_type = 'green', 'leaf'
+        elif cat == 'Public Transport': icon_color, icon_type = 'lightgray', 'unchecked'
+        else: icon_color, icon_type = 'red', 'map-marker'
 
         subcat = str(row.get('subcategory', '')).replace('_', ' ').title()
         bee_average = float(row.get('bee_average', 0))
@@ -490,7 +487,20 @@ if df_pins is not None and not df_pins.empty:
             icon=folium.Icon(color=icon_color, icon=icon_type)
         ).add_to(marker_cluster)
 
-st_folium(m, height=700, use_container_width=True, returned_objects=[])
+# Create the map and listen for clicks
+map_data = st_folium(m, height=700, use_container_width=True, returned_objects=["last_active_drawing"])
+
+# The Click Handler
+if map_data and map_data.get("last_active_drawing"):
+    clicked_properties = map_data["last_active_drawing"].get("properties", {})
+    clicked_district = clicked_properties.get("Gemeinde_name", clicked_properties.get("name", ""))
+
+    if clicked_district and clicked_district in DISTRICT_CENTERS:
+        # If the map click is different from our current view, update and reload!
+        if st.session_state["selected_district"] != clicked_district:
+            # Update our absolute source of truth and rerun
+            st.session_state["selected_district"] = clicked_district
+            st.rerun()
 
 # ==============================================================================
 # 6. BEE RATING SYSTEM
