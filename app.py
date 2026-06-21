@@ -257,6 +257,15 @@ DISTRICT_CENTERS = {
     "Tempelhof-Schöneberg": {"coords": [52.4700, 13.3800], "zoom": 13}
 }
 
+DISTRICT_STEREOTYPES = {
+    "Mitte": "Historically Berlin's core, Mitte is now the polished, corporate, and tourist center. It is characterized by high-end startup offices, government buildings, busy shopping districts, and chic cafes.",
+    "Friedrichshain-Kreuzberg": "The alternative heart of Berlin. Famous for its legendary techno clubs, punk heritage, colorful street art, and vibrant political activism.",
+    "Neukölln": "Raw, edgy, and rapidly changing. Neukölln is famous for its diverse, multicultural atmosphere, international street food, smoky hipster bars, and proximity to the Tempelhofer Feld.",
+    "Charlottenburg-Wilmersdorf": "The wealthy, elegant heart of old West Berlin. It is known for its beautiful pre-war buildings, upscale dining, peaceful residential areas, and luxury shopping along Kurfürstendamm.",
+    "Pankow": "Berlin's family-friendly haven (including Prenzlauer Berg). Popularly stereotyped as a cozy neighborhood of renovated apartments, organic food markets, baby strollers, and relaxed cafes.",
+    "Tempelhof-Schöneberg": "A leafy district that is historically the heart of Berlin's LGBTQ+ community. It features cozy local pubs, quiet residential areas, and borders the massive former Tempelhof Airport runway park."
+}
+
 RATINGS_PATH = "data/bee_ratings.json"
 
 # ==============================================================================
@@ -357,7 +366,7 @@ except ValueError:
     current_index = 0
 
 # GEOLOCATION FEATURE START
-col_d, col_loc, col_cats = st.columns([1, 1, 3])
+col_d, col_info, col_loc, col_cats = st.columns([1.5, 0.4, 1.1, 3])
 # GEOLOCATION FEATURE END
 
 with col_d:
@@ -372,6 +381,14 @@ with col_d:
     if ui_selection != st.session_state["selected_district"]:
         st.session_state["selected_district"] = ui_selection
         st.rerun()
+
+with col_info:
+    st.markdown("&nbsp;", unsafe_allow_html=True)  # vertical alignment spacer
+    selected_district = st.session_state["selected_district"]
+    if selected_district != "City View (No Pins)":
+        with st.popover("ℹ️", help="District Vibe & Stereotype"):
+            st.markdown(f"**{selected_district} vibe**")
+            st.write(DISTRICT_STEREOTYPES.get(selected_district, ""))
 
 # GEOLOCATION FEATURE START
 with col_loc:
