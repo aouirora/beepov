@@ -10,6 +10,9 @@ from streamlit_folium import st_folium
 import shapely.wkt
 from datetime import datetime
 from html import escape
+# GEOLOCATION FEATURE START
+from streamlit_geolocation import streamlit_geolocation
+# GEOLOCATION FEATURE END
 
 # ==============================================================================
 # 1. INITIAL APP CONFIGURATION & STYLING
@@ -264,6 +267,17 @@ if "selected_district" not in st.session_state:
 if "shuffle_seed" not in st.session_state:
     st.session_state["shuffle_seed"] = "beepov-default"
 
+# GEOLOCATION FEATURE START
+if "use_user_location" not in st.session_state:
+    st.session_state["use_user_location"] = False
+if "user_lat" not in st.session_state:
+    st.session_state["user_lat"] = None
+if "user_lon" not in st.session_state:
+    st.session_state["user_lon"] = None
+if "geo_widget_shown" not in st.session_state:
+    st.session_state["geo_widget_shown"] = False
+# GEOLOCATION FEATURE END
+
 active_subcategories = []
 show_public_transport = False
 apply_free = False
@@ -286,20 +300,42 @@ try:
 except ValueError:
     current_index = 0
 
-col_d, col_cats = st.columns([1, 3])
+# GEOLOCATION FEATURE START
+col_d, col_loc, col_cats = st.columns([1, 1, 3])
+# GEOLOCATION FEATURE END
 
 with col_d:
     # Render the selectbox WITHOUT a key, and grab its returned value
     ui_selection = st.selectbox(
-        "📍 Select a District", 
+        "📍 Select a District",
         options=district_list,
         index=current_index
     )
-    
+
     # If the user clicks the dropdown, update the state and immediately rerun
     if ui_selection != st.session_state["selected_district"]:
         st.session_state["selected_district"] = ui_selection
         st.rerun()
+
+# GEOLOCATION FEATURE START
+with col_loc:
+    st.markdown("&nbsp;", unsafe_allow_html=True)
+    if st.button("📍 Use My Location"):
+        st.session_state["use_user_location"] = True
+
+    if st.session_state["use_user_location"]:
+        location = streamlit_geolocation()
+        if location and location.get("latitude") is not None and location.get("longitude") is not None:
+            st.session_state["user_lat"] = location["latitude"]
+            st.session_state["user_lon"] = location["longitude"]
+        elif st.session_state["geo_widget_shown"] and st.session_state["user_lat"] is None:
+            # The streamlit-geolocation component never reports a distinct "denied"
+            # state (a browser rejection just leaves its value at the default), so a
+            # still-empty result on a render after the widget was shown is treated as denial.
+            st.session_state["use_user_location"] = False
+            st.warning("Location access was denied. Please enable location permissions in your browser.")
+        st.session_state["geo_widget_shown"] = True
+# GEOLOCATION FEATURE END
 
 # For the rest of the app, use the clean session state variable
 selected_district = st.session_state["selected_district"]
@@ -431,12 +467,21 @@ if df_pins is not None and not df_pins.empty:
 # ==============================================================================
 # 5. RENDERING MAP VIEWPORT & CLICK LOGIC
 # ==============================================================================
-if selected_district == "City View (No Pins)":
+# GEOLOCATION FEATURE START
+if (
+    st.session_state["use_user_location"]
+    and st.session_state["user_lat"] is not None
+    and st.session_state["user_lon"] is not None
+):
+    map_center = [st.session_state["user_lat"], st.session_state["user_lon"]]
+    map_zoom = 15
+elif selected_district == "City View (No Pins)":
     map_center = [52.5200, 13.4050]
     map_zoom = 11
 else:
     map_center = DISTRICT_CENTERS[selected_district]["coords"]
     map_zoom = DISTRICT_CENTERS[selected_district]["zoom"]
+# GEOLOCATION FEATURE END
 
 m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="CartoDB positron")
 
@@ -486,6 +531,19 @@ if df_pins is not None and not df_pins.empty:
             popup=folium.Popup(popup_html, max_width=250),
             icon=folium.Icon(color=icon_color, icon=icon_type)
         ).add_to(marker_cluster)
+
+# GEOLOCATION FEATURE START
+if (
+    st.session_state["use_user_location"]
+    and st.session_state["user_lat"] is not None
+    and st.session_state["user_lon"] is not None
+):
+    folium.Marker(
+        location=[st.session_state["user_lat"], st.session_state["user_lon"]],
+        popup=folium.Popup("You are here", max_width=200),
+        icon=folium.Icon(color="blue", icon="user")
+    ).add_to(m)
+# GEOLOCATION FEATURE END
 
 # Create the map and listen for clicks
 map_data = st_folium(m, height=700, use_container_width=True, returned_objects=["last_active_drawing"])

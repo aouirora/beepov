@@ -7,3 +7,4 @@ folium
 streamlit-folium>=0.27.0
 pyogrio
 shapely
+streamlit-geolocation
