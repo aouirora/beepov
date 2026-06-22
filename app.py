@@ -10,9 +10,79 @@ from streamlit_folium import st_folium
 import shapely.wkt
 from datetime import datetime
 from html import escape
+import urllib.parse
 # GEOLOCATION FEATURE START
 from streamlit_geolocation import streamlit_geolocation
 # GEOLOCATION FEATURE END
+
+# ==============================================================================
+# 0. RATINGS FILE UTILITIES & DIRECT PATH SUBMISSIONS HANDLER
+# ==============================================================================
+RATINGS_PATH = "data/bee_ratings.json"
+
+@st.cache_data
+def load_bee_ratings():
+    if not os.path.exists(RATINGS_PATH):
+        return {}
+    try:
+        with open(RATINGS_PATH, "r", encoding="utf-8") as ratings_file:
+            ratings = json.load(ratings_file)
+            return {key: [int(value) for value in values] for key, values in ratings.items()}
+    except (json.JSONDecodeError, OSError, TypeError, ValueError):
+        return {}
+
+def save_bee_rating(place_id, rating):
+    ratings = load_bee_ratings()
+    ratings.setdefault(place_id, []).append(int(rating))
+    os.makedirs(os.path.dirname(RATINGS_PATH), exist_ok=True)
+    with open(RATINGS_PATH, "w", encoding="utf-8") as ratings_file:
+        json.dump(ratings, ratings_file, indent=2, ensure_ascii=False)
+    load_bee_ratings.clear()
+
+# Check URL query parameters for ratings submitted via map popups
+if "rate" in st.query_params and "place_id" in st.query_params:
+    try:
+        rate_val = int(st.query_params["rate"])
+        place_id_val = st.query_params["place_id"]
+        save_bee_rating(place_id_val, rate_val)
+        st.session_state["bee_rating_success"] = f"Thanks! Your {rate_val}-Bee rating was added."
+    except Exception:
+        pass
+
+    # If this request came from a popup click, render a success page in the new tab and close it
+    if "close" in st.query_params:
+        st.query_params.clear()
+        st.markdown(
+            """
+            <div style="text-align: center; margin-top: 150px; font-family: sans-serif;">
+                <h1 style="color: #2f2a1e; font-size: 2.2rem; margin-bottom: 0.5rem; font-weight: normal;">Rating Saved</h1>
+                <p style="color: #756d5d; font-size: 1rem;">You can close this window now.</p>
+            </div>
+            <script>
+                setTimeout(function() {
+                    window.close();
+                }, 800);
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
+        st.components.v1.html(
+            """
+            <script>
+                window.close();
+                setTimeout(function() {
+                    parent.window.close();
+                }, 300);
+            </script>
+            """,
+            height=0,
+            width=0
+        )
+        st.stop()
+
+    # Clear query parameters to restore clean URL state
+    st.query_params.clear()
+    st.rerun()
 
 # ==============================================================================
 # 1. INITIAL APP CONFIGURATION & STYLING
@@ -237,6 +307,15 @@ DISTRICT_CENTERS = {
     "Tempelhof-Schöneberg": {"coords": [52.4700, 13.3800], "zoom": 13}
 }
 
+DISTRICT_STEREOTYPES = {
+    "Mitte": "Historically Berlin's core, Mitte is now the polished, corporate, and tourist center. It is characterized by high-end startup offices, government buildings, busy shopping districts, and chic cafes.",
+    "Friedrichshain-Kreuzberg": "The alternative heart of Berlin. Famous for its legendary techno clubs, punk heritage, colorful street art, and vibrant political activism.",
+    "Neukölln": "Raw, edgy, and rapidly changing. Neukölln is famous for its diverse, multicultural atmosphere, international street food, smoky hipster bars, and proximity to the Tempelhofer Feld.",
+    "Charlottenburg-Wilmersdorf": "The wealthy, elegant heart of old West Berlin. It is known for its beautiful pre-war buildings, upscale dining, peaceful residential areas, and luxury shopping along Kurfürstendamm.",
+    "Pankow": "Berlin's family-friendly haven (including Prenzlauer Berg). Popularly stereotyped as a cozy neighborhood of renovated apartments, organic food markets, baby strollers, and relaxed cafes.",
+    "Tempelhof-Schöneberg": "A leafy district that is historically the heart of Berlin's LGBTQ+ community. It features cozy local pubs, quiet residential areas, and borders the massive former Tempelhof Airport runway park."
+}
+
 RATINGS_PATH = "data/bee_ratings.json"
 
 # ==============================================================================
@@ -273,24 +352,7 @@ def get_rating_summary(ratings, place_id):
         return 0, 0
     return sum(place_ratings) / len(place_ratings), len(place_ratings)
 
-@st.cache_data
-def load_bee_ratings():
-    if not os.path.exists(RATINGS_PATH):
-        return {}
-    try:
-        with open(RATINGS_PATH, "r", encoding="utf-8") as ratings_file:
-            ratings = json.load(ratings_file)
-            return {key: [int(value) for value in values] for key, values in ratings.items()}
-    except (json.JSONDecodeError, OSError, TypeError, ValueError):
-        return {}
 
-def save_bee_rating(place_id, rating):
-    ratings = load_bee_ratings()
-    ratings.setdefault(place_id, []).append(int(rating))
-    os.makedirs(os.path.dirname(RATINGS_PATH), exist_ok=True)
-    with open(RATINGS_PATH, "w", encoding="utf-8") as ratings_file:
-        json.dump(ratings, ratings_file, indent=2, ensure_ascii=False)
-    load_bee_ratings.clear()
 
 @st.cache_resource
 def get_database_connection():
@@ -320,6 +382,9 @@ if "shuffle_seed" not in st.session_state:
 for _cat in CATEGORIES:
     if _cat["key"] not in st.session_state:
         st.session_state[_cat["key"]] = False
+
+if "clicked_place_id" not in st.session_state:
+    st.session_state["clicked_place_id"] = None
 
 # GEOLOCATION FEATURE START
 if "use_user_location" not in st.session_state:
@@ -355,7 +420,7 @@ except ValueError:
     current_index = 0
 
 # GEOLOCATION FEATURE START
-col_d, col_loc, col_cats = st.columns([1, 1, 3])
+col_d, col_info, col_loc, col_cats = st.columns([1.5, 0.4, 1.1, 3])
 # GEOLOCATION FEATURE END
 
 with col_d:
@@ -370,6 +435,14 @@ with col_d:
     if ui_selection != st.session_state["selected_district"]:
         st.session_state["selected_district"] = ui_selection
         st.rerun()
+
+with col_info:
+    st.markdown("&nbsp;", unsafe_allow_html=True)  # vertical alignment spacer
+    selected_district = st.session_state["selected_district"]
+    if selected_district != "City View (No Pins)":
+        with st.popover("ℹ️", help="District Vibe & Stereotype"):
+            st.markdown(f"**{selected_district} vibe**")
+            st.write(DISTRICT_STEREOTYPES.get(selected_district, ""))
 
 # GEOLOCATION FEATURE START
 with col_loc:
@@ -565,16 +638,28 @@ if df_pins is not None and not df_pins.empty:
         subcat = str(row.get('subcategory', '')).replace('_', ' ').title()
         bee_average = float(row.get('bee_average', 0))
         bee_count = int(row.get('bee_count', 0))
-        bee_label = format_bees(bee_average)
         if bee_count:
-            rating_line = f"{bee_label} {bee_average:.1f}/5 from {bee_count} rating{'s' if bee_count != 1 else ''}"
+            rating_line = f"{bee_average:.1f}/5 from {bee_count} rating{'s' if bee_count != 1 else ''}"
         else:
-            rating_line = bee_label
-        popup_html = f"<b>{escape(str(row['name']))}</b><br><i>{escape(subcat)}</i><br><span>{escape(rating_line)}</span>"
+            rating_line = "No Bee ratings yet"
+        escaped_place_id = urllib.parse.quote(row['place_id'])
+        rating_links_html = f"""
+        <div style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 6px; font-family: sans-serif; width: 100%;">
+            <div style="font-size: 11px; color: #756d5d; margin-bottom: 5px; font-weight: bold;">Rate this place:</div>
+            <div style="display: flex; gap: 4px; flex-wrap: nowrap; justify-content: space-between;">
+                <a href="/?rate=1&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">1🐝</a>
+                <a href="/?rate=2&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">2🐝</a>
+                <a href="/?rate=3&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">3🐝</a>
+                <a href="/?rate=4&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">4🐝</a>
+                <a href="/?rate=5&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">5🐝</a>
+            </div>
+        </div>
+        """
+        popup_html = f"<b>{escape(str(row['name']))}</b><br><i>{escape(subcat)}</i><br><span>{escape(rating_line)}</span>{rating_links_html}"
 
         folium.Marker(
             location=[point.y, point.x],
-            popup=folium.Popup(popup_html, max_width=250),
+            popup=folium.Popup(popup_html, max_width=270),
             icon=folium.Icon(color=icon_color, icon=icon_type)
         ).add_to(marker_cluster)
 
@@ -591,29 +676,71 @@ if (
     ).add_to(m)
 # GEOLOCATION FEATURE END
 
-# Create the map and listen for clicks
-map_data = st_folium(m, height=700, use_container_width=True, returned_objects=["last_active_drawing"])
+# Create columns for Map (left) and Details/Rating Panel (right)
+col_map, col_panel = st.columns([5, 2])
+
+with col_map:
+    # Create the map and listen for clicks
+    map_data = st_folium(
+        m,
+        height=700,
+        use_container_width=True,
+        returned_objects=["last_active_drawing", "last_object_clicked"]
+    )
 
 # The Click Handler
-if map_data and map_data.get("last_active_drawing"):
-    clicked_properties = map_data["last_active_drawing"].get("properties", {})
-    clicked_district = clicked_properties.get("Gemeinde_name", clicked_properties.get("name", ""))
+if map_data:
+    # 1. Handle district click (GeoJson feature)
+    if map_data.get("last_active_drawing"):
+        clicked_properties = map_data["last_active_drawing"].get("properties", {})
+        clicked_district = clicked_properties.get("Gemeinde_name", clicked_properties.get("name", ""))
 
-    if clicked_district and clicked_district in DISTRICT_CENTERS:
-        # If the map click is different from our current view, update and reload!
-        if st.session_state["selected_district"] != clicked_district:
-            # Update our absolute source of truth and rerun
-            st.session_state["selected_district"] = clicked_district
+        if clicked_district and clicked_district in DISTRICT_CENTERS:
+            # If the map click is different from our current view, update and reload!
+            if st.session_state["selected_district"] != clicked_district:
+                # Update our absolute source of truth and rerun
+                st.session_state["selected_district"] = clicked_district
+                st.session_state["clicked_place_id"] = None  # Reset selection on district change
+                st.rerun()
+
+    # 2. Handle marker click
+    if map_data.get("last_object_clicked"):
+        clicked_lat = map_data["last_object_clicked"]["lat"]
+        clicked_lng = map_data["last_object_clicked"]["lng"]
+
+        matched_place_id = None
+        if df_pins is not None and not df_pins.empty:
+            for _, row in df_pins.iterrows():
+                try:
+                    point = shapely.wkt.loads(row['wkt_geometry'])
+                    if point.geom_type != 'Point':
+                        point = point.centroid
+                    if abs(point.y - clicked_lat) < 1e-5 and abs(point.x - clicked_lng) < 1e-5:
+                        matched_place_id = row["place_id"]
+                        break
+                except Exception:
+                    continue
+
+        if matched_place_id and st.session_state.get("clicked_place_id") != matched_place_id:
+            st.session_state["clicked_place_id"] = matched_place_id
             st.rerun()
 
-# ==============================================================================
-# 6. BEE RATING SYSTEM
-# ==============================================================================
-if selected_district != "City View (No Pins)" and df_pins is not None:
-    if "bee_rating_success" in st.session_state:
-        st.success(st.session_state.pop("bee_rating_success"))
 
-    if df_pins.empty:
+# ==============================================================================
+# 6. BEE RATING SYSTEM (SIDE PANEL)
+# ==============================================================================
+with col_panel:
+    if selected_district == "City View (No Pins)" or df_pins is None:
+        st.markdown(
+            """
+            <div class="bee-rating-panel" style="margin-top: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; color: #756d5d; min-height: 250px;">
+                <h4 style="color: #2f2a1e; margin-bottom: 0.4rem;">No neighborhood active</h4>
+                <p style="font-size: 0.88rem; margin: 0 1rem; line-height: 1.4;">Select a district at the top of the screen to load places of interest and start rating.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    elif df_pins.empty:
         st.info("No places match the current filters and Bee rating threshold.")
     else:
         rating_options = {
@@ -629,24 +756,27 @@ if selected_district != "City View (No Pins)" and df_pins is not None:
                 (df_pins["bee_average"] * df_pins["bee_count"]).sum() / total_ratings
             )
 
+        if "bee_rating_success" in st.session_state:
+            st.success(st.session_state.pop("bee_rating_success"))
+
         st.markdown(
             f"""
-            <section class="bee-rating-panel">
-                <div class="bee-rating-heading"><span>🐝</span><span>Bee rating</span></div>
-                <div class="bee-rating-subtle">
-                    Rate one of the visible places from 1 to 5 Bees. The score helps keep the map focused on places people actually enjoyed.
+            <section class="bee-rating-panel" style="margin-top: 0;">
+                <div class="bee-rating-heading"><span>🐝</span><span>{selected_district} Overview</span></div>
+                <div class="bee-rating-subtle" style="margin-bottom: 0.6rem;">
+                    Click any marker on the map and select a rating (1-5 Bees) directly inside the popup.
                 </div>
-                <div class="bee-summary-grid">
+                <div class="bee-summary-grid" style="margin-top: 0; margin-bottom: 0;">
                     <div class="bee-summary-item">
-                        <div class="bee-summary-label">Visible places</div>
+                        <div class="bee-summary-label">Visible</div>
                         <div class="bee-summary-value">{visible_count}</div>
                     </div>
                     <div class="bee-summary-item">
-                        <div class="bee-summary-label">Rated places</div>
+                        <div class="bee-summary-label">Rated</div>
                         <div class="bee-summary-value">{rated_places_count}</div>
                     </div>
                     <div class="bee-summary-item">
-                        <div class="bee-summary-label">View average</div>
+                        <div class="bee-summary-label">Average</div>
                         <div class="bee-summary-value">{view_average:.1f}/5</div>
                     </div>
                 </div>
@@ -655,39 +785,43 @@ if selected_district != "City View (No Pins)" and df_pins is not None:
             unsafe_allow_html=True
         )
 
-        with st.form("bee_rating_form", clear_on_submit=False, border=True):
-            selected_place_label = st.selectbox("Place", list(rating_options.keys()))
-            selected_place_id = rating_options[selected_place_label]
-            selected_average, selected_count = get_rating_summary(bee_ratings, selected_place_id)
-            if selected_count:
-                selected_score_text = f"{selected_average:.1f}/5 from {rating_count_label(selected_count)}"
-            else:
-                selected_score_text = "No ratings yet"
+        # Expander for manual rating from list (fallback)
+        with st.expander("Or select place from list to rate"):
+            with st.form("bee_rating_form_fallback", clear_on_submit=False, border=True):
+                selected_place_label = st.selectbox("Place", list(rating_options.keys()))
+                fallback_place_id = rating_options[selected_place_label]
+                selected_average, selected_count = get_rating_summary(bee_ratings, fallback_place_id)
+                if selected_count:
+                    selected_score_text = f"{selected_average:.1f}/5 from {rating_count_label(selected_count)}"
+                else:
+                    selected_score_text = "No ratings yet"
 
-            st.markdown(
-                f"""
-                <div class="bee-score-line">
-                    {bee_meter_html(selected_average)}
-                    <span class="bee-score-text">{selected_score_text}</span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            selected_bee_rating = st.radio(
-                "Your Bee rating",
-                options=[1, 2, 3, 4, 5],
-                horizontal=True,
-                format_func=lambda rating: f"{rating} 🐝"
-            )
-            submitted_rating = st.form_submit_button("Submit Bee Rating")
+                st.markdown(
+                    f"""
+                    <div class="bee-score-line" style="margin-top: 0; margin-bottom: 0.6rem;">
+                        {bee_meter_html(selected_average)}
+                        <span class="bee-score-text">{selected_score_text}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                selected_bee_rating = st.radio(
+                    "Your Bee rating",
+                    options=[1, 2, 3, 4, 5],
+                    horizontal=True,
+                    format_func=lambda rating: f"{rating} 🐝",
+                    key="fallback_radio"
+                )
+                submitted_rating = st.form_submit_button("Submit Bee Rating")
 
-        if submitted_rating:
-            save_bee_rating(rating_options[selected_place_label], selected_bee_rating)
-            st.session_state["bee_rating_success"] = (
-                f"Thanks! Your {selected_bee_rating}-Bee rating was added."
-            )
-            st.rerun()
+            if submitted_rating:
+                save_bee_rating(fallback_place_id, selected_bee_rating)
+                st.session_state["bee_rating_success"] = (
+                    f"Thanks! Your {selected_bee_rating}-Bee rating was added."
+                )
+                st.rerun()
 
+        # Top Bee-rated places
         rated_places = df_pins[df_pins["bee_count"] > 0].copy()
         if not rated_places.empty:
             rated_places = rated_places.sort_values(["bee_average", "bee_count"], ascending=False).head(5)
