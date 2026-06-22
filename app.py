@@ -248,6 +248,56 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+CATEGORIES = [
+    {
+        "key": "cat_food",
+        "label": "Food & Drink",
+        "parent": "Food & Drink",
+        "subcategories": [
+            {"key": "sub_rest", "label": "Restaurants", "values": ["Restaurants"]},
+            {"key": "sub_cafe", "label": "Cafes", "values": ["Cafes"]},
+            {"key": "sub_bake", "label": "Bakeries & Street Food", "values": ["Bakeries", "Markets"]},
+        ],
+    },
+    {
+        "key": "cat_nightlife",
+        "label": "Nightlife",
+        "parent": "Nightlife",
+        "subcategories": [
+            {"key": "sub_bars", "label": "Bars & Pubs", "values": ["Bars"]},
+            {"key": "sub_clubs", "label": "Clubs", "values": ["Clubs"]},
+            {"key": "sub_brew", "label": "Breweries & Wine Bars", "values": ["Breweries & Wine Bars"]},
+        ],
+    },
+    {
+        "key": "cat_culture",
+        "label": "Culture",
+        "parent": "Culture & Heritage",
+        "subcategories": [
+            {"key": "sub_mus", "label": "Museums & Galleries", "values": ["Museums", "Galleries"]},
+            {"key": "sub_land", "label": "Landmarks", "values": ["Landmark or Trail"]},
+            {"key": "sub_church", "label": "Churches", "values": ["Churches"]},
+        ],
+    },
+    {
+        "key": "cat_nature",
+        "label": "Nature",
+        "parent": "Nature & Outdoors",
+        "subcategories": [
+            {"key": "sub_parks", "label": "Parks & Gardens", "values": ["Parks & Gardens"]},
+            {"key": "sub_lakes", "label": "Lakes", "values": ["Lakes & Swimming"]},
+            {"key": "sub_hike", "label": "Hiking & Trails", "values": ["Hiking & Bike Trails"]},
+        ],
+    },
+    {
+        "key": "cat_transport",
+        "label": "Transport",
+        "parent": "Public Transport",
+        "subcategories": [],
+        "is_transport": True,
+    },
+]
+
 DISTRICT_CENTERS = {
     "Mitte": {"coords": [52.5200, 13.4050], "zoom": 14},
     "Friedrichshain-Kreuzberg": {"coords": [52.5050, 13.4400], "zoom": 14},
@@ -328,6 +378,10 @@ if "selected_district" not in st.session_state:
 
 if "shuffle_seed" not in st.session_state:
     st.session_state["shuffle_seed"] = "beepov-default"
+
+for _cat in CATEGORIES:
+    if _cat["key"] not in st.session_state:
+        st.session_state[_cat["key"]] = False
 
 if "clicked_place_id" not in st.session_state:
     st.session_state["clicked_place_id"] = None
@@ -415,64 +469,56 @@ selected_district = st.session_state["selected_district"]
 
 if selected_district != "City View (No Pins)":
     with col_cats:
-        st.markdown("**Select Categories**")
-        cat_cols = st.columns(5)
-        with cat_cols[0]: food = st.checkbox("🍽 Food & Drink")
-        with cat_cols[1]: nightlife = st.checkbox("🎵 Nightlife")
-        with cat_cols[2]: culture = st.checkbox("🏛 Culture")
-        with cat_cols[3]: nature = st.checkbox("🌿 Nature")
-        with cat_cols[4]: transport = st.checkbox("🚌 Transport")
+        _header_col, _btn_col = st.columns([4, 1])
+        with _header_col:
+            st.markdown("**Select Categories**")
+        with _btn_col:
+            _all_selected = all(st.session_state.get(cat["key"], False) for cat in CATEGORIES)
+            if st.button("Unselect All" if _all_selected else "Select All"):
+                _new_val = not _all_selected
+                for cat in CATEGORIES:
+                    st.session_state[cat["key"]] = _new_val
+                st.rerun()
 
-    if food or nightlife or culture or nature or transport:
+        cat_cols = st.columns(len(CATEGORIES))
+        for i, cat in enumerate(CATEGORIES):
+            with cat_cols[i]:
+                st.checkbox(cat["label"], key=cat["key"])
+
+    _active_cats = [cat for cat in CATEGORIES if st.session_state.get(cat["key"]) and not cat.get("is_transport")]
+    _transport_on = st.session_state.get("cat_transport", False)
+
+    if _active_cats or _transport_on:
         st.markdown("---")
-        sub_cols = st.columns([2, 2, 2, 2, 1])
+        sub_cols = st.columns([2] * len(_active_cats) + [1])
 
-        if food:
-            parent_categories_selected.add('Food & Drink')
-            with sub_cols[0]:
-                st.markdown("**Food & Drink**")
-                if st.checkbox("Restaurants", value=True, key="sub_rest"): active_subcategories.append('Restaurants')
-                if st.checkbox("Cafes", value=True, key="sub_cafe"): active_subcategories.append('Cafes')
-                if st.checkbox("Bakeries & Street Food", value=True, key="sub_bake"): active_subcategories.extend(['Bakeries', 'Markets'])
+        for i, cat in enumerate(_active_cats):
+            parent_categories_selected.add(cat["parent"])
+            with sub_cols[i]:
+                st.markdown(f"**{cat['parent']}**")
+                for sub in cat["subcategories"]:
+                    if st.checkbox(sub["label"], value=True, key=sub["key"]):
+                        active_subcategories.extend(sub["values"])
 
-        if nightlife:
-            parent_categories_selected.add('Nightlife')
-            with sub_cols[1]:
-                st.markdown("**Nightlife**")
-                if st.checkbox("Bars & Pubs", value=True, key="sub_bars"): active_subcategories.append('Bars')
-                if st.checkbox("Clubs", value=True, key="sub_clubs"): active_subcategories.append('Clubs')
-                if st.checkbox("Breweries & Wine Bars", value=True, key="sub_brew"): active_subcategories.append('Breweries & Wine Bars')
-
-        if culture:
-            parent_categories_selected.add('Culture & Heritage')
-            with sub_cols[2]:
-                st.markdown("**Culture & Heritage**")
-                if st.checkbox("Museums & Galleries", value=True, key="sub_mus"): active_subcategories.extend(['Museums', 'Galleries'])
-                if st.checkbox("Landmarks", value=True, key="sub_land"): active_subcategories.append('Landmark or Trail')
-                if st.checkbox("Churches", value=True, key="sub_church"): active_subcategories.append('Churches')
-
-        if nature:
-            parent_categories_selected.add('Nature & Outdoors')
-            with sub_cols[3]:
-                st.markdown("**Nature & Outdoors**")
-                if st.checkbox("Parks & Gardens", value=True, key="sub_parks"): active_subcategories.append('Parks & Gardens')
-                if st.checkbox("Lakes", value=True, key="sub_lakes"): active_subcategories.append('Lakes & Swimming')
-                if st.checkbox("Hiking & Trails", value=True, key="sub_hike"): active_subcategories.append('Hiking & Bike Trails')
-
-        if transport:
-            parent_categories_selected.add('Public Transport')
+        if _transport_on:
+            parent_categories_selected.add("Public Transport")
             show_public_transport = True
 
-        with sub_cols[4]:
+        _food_or_nightlife = any(
+            st.session_state.get(cat["key"])
+            for cat in CATEGORIES
+            if cat["parent"] in ("Food & Drink", "Nightlife")
+        )
+        with sub_cols[-1]:
             st.markdown("**Refine**")
             apply_free = st.checkbox("Free")
             apply_accessible = st.checkbox("Accessible")
-            if food or nightlife:
+            if _food_or_nightlife:
                 apply_vegan = st.checkbox("Vegan")
             apply_lgbtq = st.checkbox("LGBTQ+")
             max_results = st.slider("Max", min_value=5, max_value=50, value=15)
             minimum_bee_rating = st.slider("Min 🐝", min_value=0, max_value=5, value=0)
-            if st.button("🔀 Shuffle"):
+            if st.button("Shuffle"):
                 st.session_state["shuffle_seed"] = datetime.utcnow().isoformat()
 
 st.markdown("---")
