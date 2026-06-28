@@ -129,5 +129,9 @@ con.execute("""
     FROM unified_pois
     WHERE subcategory != 'Hiking & Bike Trails'
 """)
-con.execute("COPY unified_pois_final TO 'data/berlin_pois.parquet' (FORMAT PARQUET);")
+con.execute("""
+COPY (SELECT row_number() OVER (ORDER BY name, district_name, subcategory) AS id, *
+FROM unified_pois_final)
+TO 'data/berlin_pois.parquet' (FORMAT PARQUET);
+""")
 print("Database build complete! You can now run streamlit run app.py")
