@@ -304,7 +304,13 @@ DISTRICT_CENTERS = {
     "Neukölln": {"coords": [52.4800, 13.4350], "zoom": 14},
     "Charlottenburg-Wilmersdorf": {"coords": [52.5000, 13.2800], "zoom": 14},
     "Pankow": {"coords": [52.5600, 13.4000], "zoom": 13},
-    "Tempelhof-Schöneberg": {"coords": [52.4700, 13.3800], "zoom": 13}
+    "Tempelhof-Schöneberg": {"coords": [52.4700, 13.3800], "zoom": 13},
+    "Lichtenberg": {"coords": [52.5349, 13.5098], "zoom": 13},
+    "Marzahn-Hellersdorf": {"coords": [52.5211, 13.5788], "zoom": 13},
+    "Reinickendorf": {"coords": [52.5957, 13.2913], "zoom": 13},
+    "Spandau": {"coords": [52.5258, 13.1788], "zoom": 13},
+    "Steglitz-Zehlendorf": {"coords": [52.4348, 13.2391], "zoom": 13},
+    "Treptow-Köpenick": {"coords": [52.4296, 13.6112], "zoom": 13}
 }
 
 DISTRICT_STEREOTYPES = {
@@ -313,7 +319,13 @@ DISTRICT_STEREOTYPES = {
     "Neukölln": "Raw, edgy, and rapidly changing. Neukölln is famous for its diverse, multicultural atmosphere, international street food, smoky hipster bars, and proximity to the Tempelhofer Feld.",
     "Charlottenburg-Wilmersdorf": "The wealthy, elegant heart of old West Berlin. It is known for its beautiful pre-war buildings, upscale dining, peaceful residential areas, and luxury shopping along Kurfürstendamm.",
     "Pankow": "Berlin's family-friendly haven (including Prenzlauer Berg). Popularly stereotyped as a cozy neighborhood of renovated apartments, organic food markets, baby strollers, and relaxed cafes.",
-    "Tempelhof-Schöneberg": "A leafy district that is historically the heart of Berlin's LGBTQ+ community. It features cozy local pubs, quiet residential areas, and borders the massive former Tempelhof Airport runway park."
+    "Tempelhof-Schöneberg": "A leafy district that is historically the heart of Berlin's LGBTQ+ community. It features cozy local pubs, quiet residential areas, and borders the massive former Tempelhof Airport runway park.",
+    "Lichtenberg": "Working-class East Berlin with a socialist backbone. Known for the Stasi Museum, sprawling prefab housing estates, an authentic Vietnamese community around the Dong Xuan Center, and growing spillover from Friedrichshain.",
+    "Marzahn-Hellersdorf": "Berlin's GDR panel-block heartland — quiet, affordable, and underrated. Home to the spectacular Gardens of the World and a tight-knit community of long-term residents far from tourist circuits.",
+    "Reinickendorf": "A calm, leafy northern district bordering Tegel forest and lake. Mostly residential with little tourist footfall — a genuine neighborhood far from the city buzz, popular with families and outdoor lovers.",
+    "Spandau": "Berlin's westernmost district, almost a city unto itself. Known for its well-preserved medieval old town, the imposing Spandau Citadel, and a slower pace of life that feels worlds away from central Berlin.",
+    "Steglitz-Zehlendorf": "A prosperous, leafy southwestern district of villas, lakes, and forests. Home to the Dahlem museums, the Free University, and Wannsee — more suburban retreat than urban buzz.",
+    "Treptow-Köpenick": "Berlin's most nature-rich district, where forests, rivers, and lakes dominate. Known for Müggelsee, Köpenick's charming old town, and Treptower Park with its monumental Soviet war memorial."
 }
 
 RATINGS_PATH = "data/bee_ratings.json"
@@ -407,10 +419,7 @@ minimum_bee_rating = 0
 parent_categories_selected = set()
 max_results = 15
 
-if districts_gdf is not None:
-    district_list = ["City View (No Pins)"] + sorted(list(DISTRICT_CENTERS.keys()))
-else:
-    district_list = ["City View (No Pins)"]
+district_list = ["City View (No Pins)"] + sorted(list(DISTRICT_CENTERS.keys()))
 
 # --- THE CLEAN SYNC FIX ---
 # Calculate which index the dropdown should visually show
@@ -599,10 +608,16 @@ elif selected_district == "City View (No Pins)":
     map_zoom = 11
 else:
     map_center = DISTRICT_CENTERS[selected_district]["coords"]
-    map_zoom = DISTRICT_CENTERS[selected_district]["zoom"]
+    map_zoom = 13
 # GEOLOCATION FEATURE END
 
 m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="CartoDB positron")
+
+if selected_district != "City View (No Pins)" and districts_gdf is not None:
+    district_row = districts_gdf[districts_gdf['Gemeinde_name'] == selected_district]
+    if not district_row.empty:
+        bounds = district_row.total_bounds  # [minx, miny, maxx, maxy]
+        m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
 if districts_gdf is not None:
     def get_district_style(feature):
@@ -677,33 +692,33 @@ if (
 # GEOLOCATION FEATURE END
 
 # Create columns for Map (left) and Details/Rating Panel (right)
+# ===========================================================================
+# 5b. MAP RENDER + CLICK HANDLER
+# ===========================================================================
 col_map, col_panel = st.columns([5, 2])
 
 with col_map:
-    # Create the map and listen for clicks
     map_data = st_folium(
         m,
+        key="main_map",
         height=700,
-        use_container_width=True,
+        width="100%",
         returned_objects=["last_active_drawing", "last_object_clicked"]
     )
 
-# The Click Handler
 if map_data:
-    # 1. Handle district click (GeoJson feature)
+    # 1. Handle district click (GeoJson feature) — needs full app rerun
     if map_data.get("last_active_drawing"):
         clicked_properties = map_data["last_active_drawing"].get("properties", {})
         clicked_district = clicked_properties.get("Gemeinde_name", clicked_properties.get("name", ""))
 
         if clicked_district and clicked_district in DISTRICT_CENTERS:
-            # If the map click is different from our current view, update and reload!
             if st.session_state["selected_district"] != clicked_district:
-                # Update our absolute source of truth and rerun
                 st.session_state["selected_district"] = clicked_district
-                st.session_state["clicked_place_id"] = None  # Reset selection on district change
+                st.session_state["clicked_place_id"] = None
                 st.rerun()
 
-    # 2. Handle marker click
+    # 2. Handle marker click — fragment rerun only, no scroll reset
     if map_data.get("last_object_clicked"):
         clicked_lat = map_data["last_object_clicked"]["lat"]
         clicked_lng = map_data["last_object_clicked"]["lng"]
@@ -725,10 +740,9 @@ if map_data:
             st.session_state["clicked_place_id"] = matched_place_id
             st.rerun()
 
-
-# ==============================================================================
+# ===========================================================================
 # 6. BEE RATING SYSTEM (SIDE PANEL)
-# ==============================================================================
+# ===========================================================================
 with col_panel:
     if selected_district == "City View (No Pins)" or df_pins is None:
         st.markdown(
