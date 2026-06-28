@@ -332,14 +332,8 @@ RATINGS_PATH = "data/bee_ratings.json"
 
 # ==============================================================================
 # 2. HELPER FUNCTIONS & DATA LOADERS
-# ==============================================================================
 def get_place_id(row):
-    return "|".join([
-        str(row.get('name', 'Unknown place')),
-        str(row.get('district_name', 'Unknown district')),
-        str(row.get('master_category', '')),
-        str(row.get('subcategory', '')),
-    ])
+    return str(row["id"])
 
 def format_bees(rating):
     if rating <= 0:
@@ -540,7 +534,7 @@ df_pins = None
 if selected_district != "City View (No Pins)" and (active_subcategories or show_public_transport) and os.path.exists('data/berlin_pois.parquet'):
 
     query = """
-        SELECT name, district_name, master_category, subcategory, wkt_geometry, quality_score
+        SELECT id, name, district_name, master_category, subcategory, wkt_geometry, quality_score
         FROM 'data/berlin_pois.parquet'
         WHERE district_name = ?
         AND (
