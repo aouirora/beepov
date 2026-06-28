@@ -217,6 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Runtime data (bee ratings storage — see Ruben's task for persistent solution)
+data/bee_ratings.json
+
 # Sandbox folders
 sandbox/
 
