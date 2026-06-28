@@ -601,11 +601,11 @@ if df_pins is not None and not df_pins.empty:
         <div style="margin-top: 8px; border-top: 1px solid #eee; padding-top: 6px; font-family: sans-serif; width: 100%;">
             <div style="font-size: 11px; color: #756d5d; margin-bottom: 5px; font-weight: bold;">Rate this place:</div>
             <div style="display: flex; gap: 4px; flex-wrap: nowrap; justify-content: space-between;">
-                <a href="/?rate=1&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">1🐝</a>
-                <a href="/?rate=2&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">2🐝</a>
-                <a href="/?rate=3&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">3🐝</a>
-                <a href="/?rate=4&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">4🐝</a>
-                <a href="/?rate=5&place_id={escaped_place_id}&close=true" target="_blank" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">5🐝</a>
+                <a href="/?rate=1&place_id={escaped_place_id}&" target="_self" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">1🐝</a>
+                <a href="/?rate=2&place_id={escaped_place_id}&" target="_self" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">2🐝</a>
+                <a href="/?rate=3&place_id={escaped_place_id}&" target="_self" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">3🐝</a>
+                <a href="/?rate=4&place_id={escaped_place_id}&" target="_self" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">4🐝</a>
+                <a href="/?rate=5&place_id={escaped_place_id}&" target="_self" style="display: inline-block; padding: 2px 6px; background: #fff7df; border: 1px solid #e8dfca; border-radius: 4px; text-decoration: none; font-size: 11px; color: #2f2a1e; font-weight: bold; min-width: 30px; text-align: center;">5🐝</a>
             </div>
         </div>
         """
@@ -710,8 +710,19 @@ with col_panel:
                 (df_pins["bee_average"] * df_pins["bee_count"]).sum() / total_ratings
             )
 
-        if "bee_rating_success" in st.session_state:
-            st.success(st.session_state.pop("bee_rating_success"))
+            if "bee_rating_success" in st.session_state:
+                st.success(st.session_state.pop("bee_rating_success"))
+
+        # Get the currently selected place from the map
+        selected_place = None
+
+        if st.session_state.get("clicked_place_id"):
+            selected_rows = df_pins[
+                df_pins["place_id"] == st.session_state["clicked_place_id"]
+            ]
+
+            if not selected_rows.empty:
+                selected_place = selected_rows.iloc[0]
 
         st.markdown(
             f"""
