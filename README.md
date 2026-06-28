@@ -134,7 +134,7 @@ out skel qt;
    User selects persona + district
         │
         ▼
-   DuckDB: SELECT * FROM berlin_pois WHERE persona='Family' AND district='Mitte'
+   DuckDB: SELECT * FROM berlin_pois WHERE district_name='Mitte' AND subcategory IN ('Restaurants','Cafes')
         │
         ▼
    Folium renders filtered pins on the Berlin map
@@ -143,61 +143,112 @@ out skel qt;
 
 ---
 
+## UI Design (karina/design branch)
+
+This branch replaces the original sidebar-based layout with a fullscreen map and a compact top bar. The visual theme shifts from yellow to a **charcoal + muted amber** palette.
+
+### Design tokens
+
+| Token | Value | Role |
+|---|---|---|
+| `INK` | `#23211D` | Primary text, active buttons |
+| `PAPER` | `#FAF8F3` | Background, panel surfaces |
+| `ACCENT` | `#B5863C` | Muted amber — bee colour |
+| `LINE` | `#E7E2D7` | Borders |
+| `MUTED` | `#8C8578` | Secondary text |
+
+Category pins on the map each use a distinct muted colour (amber, purple, steel blue, sage green, grey) rendered as small hexagon markers matching the app's honeycomb motif.
+
+---
+
 ## Filter Structure
 
-The app filters Berlin POIs in three steps. Filters are displayed at the top of the page for quick access.
+Filters are split across the **top bar** (primary) and the **Filters popover** (secondary refinements).
 
-### Step 1 — Area / District
-Multi-select one or more Berlin districts:
+### Top bar (always visible)
 
-| District | Highlights |
+```
+beePOV  |  District ▾  |  Search…  |  📍  |  Food  Night  Culture  Nature  Transit  |  Filters
+```
+
+| Control | Behaviour |
 |---|---|
-| Mitte | Brandenburg Gate, Museum Island, Alexanderplatz |
-| Kreuzberg / Friedrichshain | |
-| Prenzlauer Berg | |
-| Charlottenburg | |
-| Neukölln | |
-| Schöneberg | |
+| District dropdown | Selects one of 6 Berlin districts (or City View) and recenters the map |
+| Search field | Typing a district name jumps the map to it |
+| 📍 locate button | Requests browser geolocation and recenters the map on the user |
+| Honeycomb buttons (Food · Night · Culture · Nature · Transit) | Toggle-style; active = filled dark, inactive = outline. Multiple can be on at once |
+| Filters popover | Opens a panel with Select/Clear all, Refine toggles, and Shuffle |
 
-Districts are colour-coded on the map. Selecting one narrows visible markers before categories are applied.
+### Subcategory row (appears on category toggle)
 
-### Step 2 — Category
-Multi-select one or more activity categories. Sub-options appear inline when a parent is selected.
+When one or more category buttons are active, a row of subcategory checkboxes appears directly under the top bar — one column per active parent:
 
-| Category | Sub-options |
+| Category | Subcategories |
 |---|---|
-| Food & Drink | Restaurants · Cafés · Bakeries & Street Food |
+| Food & Drink | Restaurants · Cafes · Bakeries & Street Food |
 | Nightlife | Bars & Pubs · Clubs · Breweries & Wine Bars |
-| Culture & Heritage | Museums & Galleries · Landmarks · Churches |
-| Nature & Outdoors | Parks & Gardens · Lakes · Hiking & Trails |
+| Culture | Museums & Galleries · Landmarks · Churches |
+| Nature | Parks & Gardens · Lakes · Hiking & Trails |
 
-Categories can be combined (e.g. Food + Culture). The map updates dynamically after each selection.
+All subcategories are checked by default; unchecking one removes those POIs from the query.
 
-### Step 3 — Refine *(optional)*
-Context-based toggles shown based on Step 2 selections.
+### Filters popover (secondary refinements)
 
-**Always visible:**
-- Open Now
-- Open Late (after 22:00)
-- Near Public Transport (≤ 5 min walk)
-- Free Entry / Budget-friendly (€)
-- Wheelchair Accessible
-- LGBTQ+ / FLINTA Friendly
+- **Select all / Clear all** categories  
+- **Refine results:** Free entry · Wheelchair accessible · Vegan friendly · LGBTQ+ friendly  
+- **Max places** slider (5–50, default 15)  
+- **Min 🐝 rating** slider (0–5)  
+- **Shuffle results** — randomises the POI selection
 
-**Shown only when Food & Drink is selected:**
-- Vegan / Vegetarian Friendly
-- Outdoor Seating
-
-### User Flow
+### User flow
 
 ```
-Select district and categories from the top navigation bar → Select sub-options → Refine (optional) → Map result
+Select district (dropdown or map click)
+        │
+        ▼
+Toggle one or more category buttons
+        │
+        ▼
+Subcategory row appears → uncheck to narrow (optional)
+        │
+        ▼
+Map loads pins for the active combination
+        │
+        ▼
+Click a pin → slide-in rating panel appears on the right
+        │
+        ▼
+Tap a bee (1–5) to rate the place
 ```
+
+### Map behaviour
+
+- The map viewport **persists** — panning or zooming does not reset on the next interaction.
+- Clicking a district polygon on the map selects it without recentering (the user's current view is kept).
+- Choosing a district from the dropdown or searching intentionally recenters the map on that district.
+- Clicking **📍** recenters the map on the user's GPS position (zoom 15). Subsequent reruns preserve that view until the user navigates elsewhere.
+
+### Right-hand panel
+
+| Trigger | Panel shown |
+|---|---|
+| No pins loaded | Nothing |
+| Pins loaded, no marker clicked | **Overview**: Visible / Rated / Average stats + Top 5 bee-rated places |
+| Marker clicked | **Place panel**: category tag, name, district, bee meter score, 1–5 bee rating links |
+| ✕ button or `?close_panel=1` | Panel dismisses, view returns to Overview |
+
 ---
 
 ### Usage
 
+The app is hosted on Streamlit Cloud. See `Deploy in Streamlit Cloud.md` for deployment instructions.
 
+To run locally:
 
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
+Requires `data/berlin_pois.parquet` and `data/layer_districts.geojson` to be present. Place ratings are stored locally in `data/bee_ratings.json` (created automatically on first rating).
 
