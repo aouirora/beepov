@@ -219,9 +219,10 @@ __marimo__/
 
 # Runtime data (bee ratings storage — see Ruben's task for persistent solution)
 data/bee_ratings.json
+data/beepov.db*
 
 # Sandbox folders
 sandbox/
 
 # VSCode
-.vscode/
+.vscode/.DS_Store
