@@ -117,15 +117,20 @@ st.markdown(
             text-transform: uppercase; color: {MUTED}; margin: 2px 0 -2px;
         }}
 
-        /* ---------- Honeycomb category toggle buttons ---------- */
-        div[data-testid="stButton"] > button {{
+        /* ---------- Honeycomb category toggle buttons (4 cats only) ---------- */
+        .st-key-tg_cat_food button, .st-key-tg_cat_nightlife button,
+        .st-key-tg_cat_culture button, .st-key-tg_cat_nature button {{
             border-radius: 0 !important;
             clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
             height: 52px; font-weight: 700; font-size: 0.82rem; letter-spacing: 0.2px;
             box-shadow: none !important;
             transition: transform 0.1s ease, background 0.15s ease;
         }}
-        div[data-testid="stButton"] > button:hover {{ transform: translateY(-1px); }}
+        .st-key-tg_cat_food button:hover, .st-key-tg_cat_nightlife button:hover,
+        .st-key-tg_cat_culture button:hover, .st-key-tg_cat_nature button:hover {{
+            transform: translateY(-1px);
+        }}
+        /* Primary / secondary colours for all regular buttons */
         div[data-testid="stButton"] > button[kind="secondary"],
         div[data-testid="stButton"] > button[data-testid="stBaseButton-secondary"] {{
             background: {PAPER} !important; color: {INK} !important; border: 1.5px solid {LINE} !important;
@@ -133,6 +138,11 @@ st.markdown(
         div[data-testid="stButton"] > button[kind="primary"],
         div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] {{
             background: {INK} !important; color: {PAPER} !important; border: 1.5px solid {INK} !important;
+        }}
+        /* Buttons inside the Filters popover — plain rectangle, no hexagon clip */
+        div[data-testid="stPopover"] div[data-testid="stButton"] > button {{
+            clip-path: none !important; border-radius: 8px !important;
+            height: 38px !important; font-size: 0.82rem !important;
         }}
 
         /* ---------- Close panel button (native st.button, repositioned via CSS) ---------- */
@@ -269,8 +279,6 @@ CATEGORIES = [
          {"key": "sub_lakes", "label": "Lakes",            "values": ["Lakes & Swimming"]},
          {"key": "sub_hike",  "label": "Hiking & Trails", "values": ["Hiking & Bike Trails"]},
      ]},
-    {"key": "cat_transport", "short": "Transit", "label": "Transport", "parent": "Public Transport",
-     "subcategories": [], "is_transport": True},
 ]
 
 DISTRICT_CENTERS = {
@@ -359,8 +367,8 @@ def _district_style(selected_district, feature):
 
 
 @st.cache_data(show_spinner=False)
-def _build_folium_map(map_center_t, map_zoom, selected_district, pins_hash, geo_point,
-                      _districts_gdf, _df_pins):
+def _build_folium_map(map_center_t, map_zoom, selected_district, pins_hash,
+                      geo_point, _districts_gdf, _df_pins):
     """Build the folium map and cache it by content.
 
     clicked_place_id is intentionally excluded from the cache key so that
@@ -390,6 +398,8 @@ def _build_folium_map(map_center_t, map_zoom, selected_district, pins_hash, geo_
                 icon=hex_pin_icon(_color, selected=False),
                 tooltip=escape(str(row["name"])),
             ).add_to(_m)
+
+
 
     if geo_point:
         folium.Marker(
@@ -445,7 +455,7 @@ district_list = ["City View (No Pins)"] + sorted(DISTRICT_CENTERS.keys())
 # ==============================================================================
 # 5. TOP BAR  (brand · district · search · location · honeycomb categories · filters)
 # ==============================================================================
-bar = st.columns([1.9, 1.5, 1.6, 0.7, 0.8, 0.8, 0.8, 0.8, 0.8, 1.0], gap="small", vertical_alignment="center")
+bar = st.columns([1.9, 1.5, 1.6, 0.7, 0.8, 0.8, 0.8, 0.8, 1.0], gap="small", vertical_alignment="center")
 
 with bar[0]:
     st.markdown(
@@ -499,7 +509,7 @@ with bar[3]:
             st.rerun()
 # GEOLOCATION FEATURE END
 
-for i, cat in enumerate(CATEGORIES):
+for i, cat in enumerate(CATEGORIES):          # 4 cats → bar[4..7]
     with bar[4 + i]:
         is_on = st.session_state.get(cat["key"], False)
         if st.button(cat["short"], key="tg_" + cat["key"], use_container_width=True,
@@ -507,7 +517,7 @@ for i, cat in enumerate(CATEGORIES):
             st.session_state[cat["key"]] = not is_on
             st.rerun()
 
-with bar[9]:
+with bar[8]:
     with st.popover("Filters", use_container_width=True):
         sd = st.session_state["selected_district"]
         if sd != "City View (No Pins)":
@@ -532,7 +542,7 @@ with bar[9]:
             st.session_state["shuffle_seed"] = datetime.utcnow().isoformat()
 
 # Subcategory row (appears under the bar when a category is toggled on)
-visible_parents = [c for c in CATEGORIES if st.session_state.get(c["key"]) and not c.get("is_transport")]
+visible_parents = [c for c in CATEGORIES if st.session_state.get(c["key"])]
 if visible_parents:
     sub_cols = st.columns(len(visible_parents), gap="small")
     for col, cat in zip(sub_cols, visible_parents):
@@ -544,18 +554,14 @@ if visible_parents:
                             key="flt_" + sub["key"])
 
 # Resolve active selections from honeycomb toggles
-selected_district    = st.session_state["selected_district"]
-active_subcategories = []
-show_public_transport = False
+selected_district     = st.session_state["selected_district"]
+active_subcategories  = []
 for cat in CATEGORIES:
     if not st.session_state.get(cat["key"]):
         continue
-    if cat.get("is_transport"):
-        show_public_transport = True
-    else:
-        for sub in cat["subcategories"]:
-            if st.session_state.get("flt_" + sub["key"], True):
-                active_subcategories.extend(sub["values"])
+    for sub in cat["subcategories"]:
+        if st.session_state.get("flt_" + sub["key"], True):
+            active_subcategories.extend(sub["values"])
 
 apply_free        = st.session_state["flt_free"]
 apply_accessible  = st.session_state["flt_access"]
@@ -569,7 +575,7 @@ minimum_bee_rating = st.session_state["flt_minbee"]
 # ==============================================================================
 df_pins = None
 if (selected_district != "City View (No Pins)"
-        and (active_subcategories or show_public_transport)
+        and active_subcategories
         and os.path.exists("data/berlin_pois.parquet")):
 
     query = """
@@ -587,9 +593,8 @@ if (selected_district != "City View (No Pins)"
         placeholders = ", ".join(["?"] * len(active_subcategories))
         category_conditions.append(f"subcategory IN ({placeholders})")
         params.extend(active_subcategories)
-    if show_public_transport:
-        category_conditions.append("master_category = 'Public Transport'")
-    query += " AND (" + " OR ".join(category_conditions) + ")"
+    if category_conditions:
+        query += " AND (" + " OR ".join(category_conditions) + ")"
     if apply_free:       query += " AND is_free = true"
     if apply_accessible: query += " AND is_accessible = true"
     if apply_vegan:      query += " AND is_vegan_friendly = true"
@@ -650,8 +655,8 @@ if st.session_state["use_user_location"] and st.session_state["user_lat"] is not
 # GEOLOCATION FEATURE END
 
 m = _build_folium_map(
-    tuple(map_center), map_zoom, selected_district, _pins_hash, _geo_point,
-    districts_gdf, df_pins,
+    tuple(map_center), map_zoom, selected_district, _pins_hash,
+    _geo_point, districts_gdf, df_pins,
 )
 
 clicked_id = st.session_state.get("clicked_place_id")
@@ -831,7 +836,6 @@ if df_pins is not None and not df_pins.empty:
         ("Nightlife", CATEGORY_COLORS["Nightlife"]),
         ("Culture",   CATEGORY_COLORS["Culture & Heritage"]),
         ("Nature",    CATEGORY_COLORS["Nature & Outdoors"]),
-        ("Transport", CATEGORY_COLORS["Public Transport"]),
     ]
     _legend_rows = "".join(
         f'<span class="item"><span class="dot" style="background:{c}"></span>{escape(l)}</span>'
@@ -849,7 +853,7 @@ elif selected_district == "City View (No Pins)":
         '<div class="bee-float-cta">👋 <b>Pick a district</b> above (or click one on the map) to start</div>',
         unsafe_allow_html=True,
     )
-elif not (active_subcategories or show_public_transport):
+elif not active_subcategories:
     st.markdown(
         '<div class="bee-float-cta">✅ District set — now <b>choose a category</b> above</div>',
         unsafe_allow_html=True,
