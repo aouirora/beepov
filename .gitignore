@@ -225,4 +225,4 @@ data/beepov.db*
 sandbox/
 
 # VSCode
-.vscode/.DS_Store
+.vscode/
