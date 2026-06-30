@@ -36,28 +36,34 @@ CATEGORY_COLORS = {
 }
 
 # ==============================================================================
-# 0. RATINGS UTILITIES & QUERY PARAM HANDLER
+# 0. DATABASE CONNECTION, RATINGS UTILITIES & QUERY PARAM HANDLER
 # ==============================================================================
-RATINGS_PATH = "data/bee_ratings.json"
+@st.cache_resource
+def get_database_connection():
+    os.makedirs("data", exist_ok=True)
+    con = duckdb.connect(database="data/beepov.db")
+    con.execute("INSTALL spatial; LOAD spatial;")
+    
+    # Create reviews table and sequence if they don't exist
+    con.execute("CREATE SEQUENCE IF NOT EXISTS review_id_seq;")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS reviews (
+            review_id INTEGER DEFAULT nextval('review_id_seq') PRIMARY KEY,
+            place_id BIGINT,
+            rating INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    return con
 
-@st.cache_data
-def load_bee_ratings():
-    if not os.path.exists(RATINGS_PATH):
-        return {}
-    try:
-        with open(RATINGS_PATH, "r", encoding="utf-8") as f:
-            ratings = json.load(f)
-            return {k: [int(v) for v in vs] for k, vs in ratings.items()}
-    except (json.JSONDecodeError, OSError, TypeError, ValueError):
-        return {}
+# Initialize connection
+con = get_database_connection()
 
 def save_bee_rating(place_id, rating):
-    ratings = load_bee_ratings()
-    ratings.setdefault(place_id, []).append(int(rating))
-    os.makedirs(os.path.dirname(RATINGS_PATH), exist_ok=True)
-    with open(RATINGS_PATH, "w", encoding="utf-8") as f:
-        json.dump(ratings, f, indent=2, ensure_ascii=False)
-    load_bee_ratings.clear()
+    con.execute(
+        "INSERT INTO reviews (place_id, rating) VALUES (?, ?);",
+        [int(place_id), int(rating)]
+    )
 
 # Rating submitted from the panel bee-links — keep panel open on the rated place
 if "rate" in st.query_params and "place_id" in st.query_params:
@@ -317,12 +323,6 @@ DISTRICT_STEREOTYPES = {
 def get_place_id(row):
     return str(row["id"])
 
-def get_rating_summary(ratings, place_id):
-    place_ratings = ratings.get(place_id, [])
-    if not place_ratings:
-        return 0, 0
-    return sum(place_ratings) / len(place_ratings), len(place_ratings)
-
 def format_bees(rating):
     if rating <= 0:
         return "No Bee ratings yet"
@@ -410,11 +410,6 @@ def _build_folium_map(map_center_t, map_zoom, selected_district, pins_hash,
 
     return _m
 
-@st.cache_resource
-def get_database_connection():
-    con = duckdb.connect(database=":memory:")
-    con.execute("INSTALL spatial; LOAD spatial;")
-    return con
 
 @st.cache_data
 def load_districts_layer():
@@ -579,27 +574,44 @@ if (selected_district != "City View (No Pins)"
         and os.path.exists("data/berlin_pois.parquet")):
 
     query = """
-        SELECT id, name, district_name, master_category, subcategory, wkt_geometry, quality_score
-        FROM 'data/berlin_pois.parquet'
-        WHERE district_name = ?
+        SELECT 
+            p.id, 
+            p.name, 
+            p.district_name, 
+            p.master_category, 
+            p.subcategory, 
+            p.wkt_geometry, 
+            p.quality_score,
+            COALESCE(AVG(r.rating), 0.0) AS bee_average,
+            COUNT(r.rating) AS bee_count
+        FROM 'data/berlin_pois.parquet' p
+        LEFT JOIN reviews r ON p.id = r.place_id
+        WHERE p.district_name = ?
         AND (
-            (master_category = 'Nature & Outdoors' AND quality_score >= 1) OR
-            (master_category != 'Nature & Outdoors' AND quality_score >= 2)
+            (p.master_category = 'Nature & Outdoors' AND p.quality_score >= 1) OR
+            (p.master_category != 'Nature & Outdoors' AND p.quality_score >= 2)
         )
     """
     params = [selected_district]
     category_conditions = []
     if active_subcategories:
         placeholders = ", ".join(["?"] * len(active_subcategories))
-        category_conditions.append(f"subcategory IN ({placeholders})")
+        category_conditions.append(f"p.subcategory IN ({placeholders})")
         params.extend(active_subcategories)
     if category_conditions:
         query += " AND (" + " OR ".join(category_conditions) + ")"
-    if apply_free:       query += " AND is_free = true"
-    if apply_accessible: query += " AND is_accessible = true"
-    if apply_vegan:      query += " AND is_vegan_friendly = true"
-    if apply_lgbtq:      query += " AND is_lgbtq = true"
-    query += " ORDER BY hash(coalesce(name, '') || ?) LIMIT 200"
+    if apply_free:       query += " AND p.is_free = true"
+    if apply_accessible: query += " AND p.is_accessible = true"
+    if apply_vegan:      query += " AND p.is_vegan_friendly = true"
+    if apply_lgbtq:      query += " AND p.is_lgbtq = true"
+    
+    query += " GROUP BY p.id, p.name, p.district_name, p.master_category, p.subcategory, p.wkt_geometry, p.quality_score"
+    
+    if minimum_bee_rating > 0:
+        query += " HAVING COUNT(r.rating) > 0 AND AVG(r.rating) >= ?"
+        params.append(minimum_bee_rating)
+        
+    query += " ORDER BY hash(coalesce(p.name, '') || ?) LIMIT 200"
     params.append(st.session_state["shuffle_seed"])
 
     with st.spinner("Finding places…"):
@@ -613,14 +625,8 @@ if (selected_district != "City View (No Pins)"
     else:
         df_pins = df_all.head(max_results).copy()
 
-bee_ratings = load_bee_ratings()
 if df_pins is not None and not df_pins.empty:
     df_pins["place_id"] = df_pins.apply(get_place_id, axis=1)
-    rating_summaries = df_pins["place_id"].apply(lambda pid: get_rating_summary(bee_ratings, pid))
-    df_pins["bee_average"] = rating_summaries.apply(lambda s: s[0])
-    df_pins["bee_count"]   = rating_summaries.apply(lambda s: s[1])
-    if minimum_bee_rating > 0:
-        df_pins = df_pins[(df_pins["bee_count"] > 0) & (df_pins["bee_average"] >= minimum_bee_rating)]
 
 # ==============================================================================
 # 7. MAP
